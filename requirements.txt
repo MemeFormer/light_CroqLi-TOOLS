@@ -1,0 +1,34 @@
+# croqli/requirements.txt
+
+
+
+#######################################
+##  Install new requirements:        ##
+##  pip install -r requirements.txt  ##
+#######################################
+
+# API and web requiremests
+
+# Interactive command-line user interfaces
+inquirer
+
+# Command-line interface creation
+click
+
+# Environment variable management
+python-dotenv
+
+# Rich text and beautiful formatting in the terminal
+rich
+
+# Terminal spinner
+halo
+
+# web search
+tavily-python  
+
+# LLM API inference
+groq
+
+# data validation and settings management library
+pydantic==2.5.2 
