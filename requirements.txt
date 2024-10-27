@@ -32,3 +32,4 @@ groq
 
 # data validation and settings management library
 pydantic==2.5.2 
+instructor

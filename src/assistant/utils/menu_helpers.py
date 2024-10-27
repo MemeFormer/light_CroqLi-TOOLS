@@ -1,329 +1,300 @@
-
-
-from src.ui.display import Console
-from src.config import load_config
+# src/assistant/utils/menu_helpers.py
+from typing import Dict, Optional, Callable
+from rich.console import Console
+from src.config import Config, load_config
+from src.models.models import APIKeys
+from src.services.groq_api import GroqService
+from src.tools.tools import Tools
 from src.assistant.chat import chat_mode
 from src.assistant.search import search_mode
 from src.assistant.cli_assistant import cli_assistant_mode
+from .menu_models import MenuItem, MenuState, SystemPrompt, ModelSettings
+import inquirer
+import json
 
-#
-class MenuHelper:
-    def __init__(self):
-        self.config = load_config()
+class MenuSystem:
+    def __init__(self, config: Config, groq_service: GroqService, tools: Tools):
+        self.config = config
+        self.groq_service = groq_service
+        self.tools = tools
         self.console = Console()
+        self.state = MenuState()
+        self.menus = self._create_menu_structure()
 
-    def display_main_menu(self):
+    def _create_menu_structure(self) -> Dict[str, Dict[str, MenuItem]]:
+        # Use a dictionary to store submenus for easier access
+        self.submenus: Dict[str, Dict[str, MenuItem]] = {
+            "settings": self._create_settings_menu(),
+            "system_prompts": self._create_prompts_menu(),
+            # ... Add other submenus here ...
+        }
+
+        return {
+            "main": {
+                "1": MenuItem(
+                    title="Chat Mode",
+                    action=self._start_chat,
+                    key_binding="1",
+                    enabled=True
+                ),
+                "2": MenuItem(
+                    title="Search Mode",
+                    action=self._start_search,
+                    key_binding="2",
+                    enabled=True
+                ),
+                "3": MenuItem(
+                    title="CLI Assistant Mode",
+                    action=self._start_cli_assistant,
+                    key_binding="3",
+                    enabled=True
+                ),
+                "4": MenuItem(
+                    title="Settings",
+                    submenu=self._create_settings_menu(),
+                    key_binding="4",
+                    enabled=True
+                ),
+                "5": MenuItem(
+                    title="System Prompts",
+                    submenu=self._create_prompts_menu(),
+                    key_binding="5",
+                    enabled=True
+                ),
+                "6": MenuItem(
+                    title="Quit",
+                    action=self._quit,
+                    key_binding="6",
+                    enabled=True
+                )
+            }
+        }
+
+    def _create_settings_menu(self) -> Dict[str, MenuItem]:
+        return {  # Implement settings menu structure
+            "1": MenuItem(title="Model Settings", action=self._model_settings, key_binding="1"),
+            "2": MenuItem(title="API Keys", action=self._api_keys, key_binding="2"),
+            "3": MenuItem(title="Back", action=lambda: "back", key_binding="3"), # Lambda for simple return
+        }
+    def _create_prompts_menu(self) -> Dict[str, MenuItem]:
+        return {  # Implement prompts menu structure
+            "1": MenuItem(title="Add New Prompt", action=self._add_new_prompt, key_binding="1"),
+            "2": MenuItem(title="Switch Active Prompt", action=self._switch_active_prompt, key_binding="2"),
+            # ... Add other prompt actions as needed ...
+            "3": MenuItem(title="Back", action=lambda: "back", key_binding="3"), # Lambda for simple return
+        }
+
+    def _model_settings(self):
+        """Model settings menu."""
+        model_max_tokens = {
+        "llama3-8b-8192": 8192,
+        "llama3-70b-8192": 8192,
+        "mixtral-8x7b-32768": 32768,
+        "gemma-7b-it": 8192
+        }
+
         while True:
-            self.console.print("\nWelcome to Light CroqLI!", style="bold green")
-            self.console.print("1. Chat Mode")
-            self.console.print("2. Search Mode")
-            self.console.print("3. CLI-Assistant Mode")
-            self.console.print("4. Settings")
-            self.console.print("5. System Prompts")
-            self.console.print("6. Quit")
-            
-            choice = self.console.input("Enter your choice (1-6): ")
-            
-            if choice == "1":
-                chat_mode(self.config, self.console)
-            elif choice == "2":
-                search_mode(self.config, self.console)
-            elif choice == "3":
-                cli_assistant_mode(self.config, self.console)
-            elif choice == "4":
-                self.settings_menu()
-            elif choice == "5":
-                self.system_prompts_menu()
-            elif choice == "6":
-                self.console.print("Goodbye!", style="bold blue")
-                return
+            current_settings = ModelSettings.model_validate_json(self.tools.get_model_settings())
+            setting = inquirer.prompt[
+                inquirer.List(
+                    "setting",
+                    message="Choose a model setting to modify",
+                    choices=[
+                        "Model Name",
+                        "Max Tokens",
+                        "Temperature",
+                        "Top P",
+                        "Back",
+                    ],
+                ),
+            ]
+            setting = inquirer.prompt(questions)["setting"]
+
+            if setting == "Back":
+                break
+
+            if setting == "Model Name":
+                choices = list(model_max_tokens.keys())
+                model_question = [
+                        inquirer.List(
+                        "model",
+                        message="Choose the model to use",
+                        choices=choices
+                    )
+                ]
+                new_model = inquirer.prompt(model_question)["model"]
+                if new_model:
+                    current_settings.model_name = new_model
+
+            elif setting == "Max Tokens":
+                max_range = model_max_tokens[current_settings.model_name]
+                token_question = [
+                    inquirer.Text(
+                        "max_tokens",
+                        message=f"Enter max tokens (range: 0-{max_range}, current: {current_settings.max_tokens})",
+                        validate=lambda _, x: x.isdigit() and 0 <= int(x) <= max_range
+                    )
+                ]
+                new_tokens = inquirer.prompt(token_question)["max_tokens"]
+                if new_tokens:
+                    current_settings.max_tokens = int(new_tokens)
+
+            elif setting == "Temperature":
+                temp_question = [
+                    inquirer.Text(
+                        "temperature",
+                        message=f"Enter temperature (range: 0.0-1.0, current: {current_settings.temperature})",
+                        validate=lambda _, x: x.replace(".", "").isdigit() and 0.0 <= float(x) <= 1.0
+                    )
+                ]
+                new_temp = inquirer.prompt(temp_question)["temperature"]
+                if new_temp:
+                    current_settings.temperature = float(new_temp)
+
+            elif setting == "Top P":
+                top_p_question = [
+                    inquirer.Text(
+                        "top_p",
+                        message=f"Enter top P (range: 0.0-1.0, current: {current_settings.top_p})",
+                        validate=lambda _, x: x.replace(".", "").isdigit() and 0.0 <= float(x) <= 1.0
+                    )
+                ]
+                new_top_p = inquirer.prompt(top_p_question)["top_p"]
+                if new_top_p:
+                    current_settings.top_p = float(new_top_p)
+
+            # After updating a setting, update the config and Groq service
+            updated_settings_json = current_settings.model_dump_json()
+            update_result = json.loads(self.tools.update_model_settings(updated_settings_json))
+            if update_result["status"] == "success":
+                self.console.print("Model settings updated successfully.", style="green")
             else:
-                self.console.print("Invalid choice. Please try again.", style="bold red")
+                self.console.print(f"Error updating model settings: {update_result['message']}", style="red")
 
-    def settings_menu(self):
-        # Implement settings menu logic here
-        self.console.print("Settings menu (to be implemented)", style="yellow")
+        return "settings"
 
-    def system_prompts_menu(self):
-        # Implement system prompts menu logic here
-        self.console.print("System prompts menu (to be implemented)", style="yellow")
+    def display_current_menu(self):
+        """Display the current menu with rich formatting"""
+        menu = self.menus[self.state.current_menu]
+        
+        # Create breadcrumb trail
+        breadcrumb = " > ".join(self.state.breadcrumb + [self.state.current_menu.title()])
+        self.console.print(f"\n{breadcrumb}", style="bold blue")
+        
+        # Display menu items
+        for key, item in menu.items():
+            if item.enabled:
+                prefix = "└─ " if key == list(menu.keys())[-1] else "├─ "
+                style = "bold green" if item.submenu else "white"
+                self.console.print(f"{prefix}{item.key_binding}. {item.title}", style=style)
+
+    def handle_navigation(self, choice: str) -> bool:
+        """Handle menu navigation with breadcrumb tracking"""
+        if self.state.current_menu == "main":
+            menu = self.menus[self.state.current_menu]
+        else: # Access submenu
+            menu = self.submenus[self.state.current_menu]
+
+        if choice not in menu:
+            self.console.print("Invalid choice", style="bold red")
+            return True
+            
+        item = menu[choice]
+        
+        if item.submenu:
+            self.state.breadcrumb.append(self.state.current_menu)
+            self.state.current_menu = item.title.lower().replace(" ", "_")
+        elif item.action:
+            result = item.action()
+            if result == "quit":
+                return False
+            elif result == "back" and self.state.breadcrumb:
+                self.state.current_menu = self.state.breadcrumb.pop()
+        
+        return True
+
+    def run(self):
+        """Main menu loop with rich UI"""
+        self.console.print("Welcome to Light CroqLI!", style="bold green")
+        
+        while True:
+            self.display_current_menu()
+            choice = self.console.input("\nEnter your choice: ")
+            
+            if not self.handle_navigation(choice):
+                break
+
+    def _start_chat(self):
+        chat_mode(self.config, self.console, self.groq_service)
+        return "main" # Return to main menu after chat mode
+
+    def _start_search(self):
+        search_mode(self.config, self.console, self.groq_service)
+        return "main" # Return to main menu after search mode
+
+    def _start_cli_assistant(self):
+        cli_assistant_mode(self.config, self.console, self.groq_service, self.tools)
+        return "main" # Return to main menu after CLI assistant mode
+
+    def _quit(self):
+        self.console.print("Goodbye!", style="bold blue")
+        return "quit"
+
+    def _model_settings(self):
+        # Implement model settings logic here
+        self.console.print("Model settings menu (to be implemented)", style="yellow")
+        return "settings" # Return to settings menu after
+
+    def _api_keys(self):
+        """API keys menu."""
+        while True:
+            current_keys = APIKeys.model_validate_json(self.tools.get_api_keys())
+
+            questions = [
+                inquirer.Text(
+                    "groq_api_key",
+                    message="Enter your new GROQ API key (leave empty to keep current):",
+                    default=current_keys.groq_api_key,
+                ),
+                # ... (Add input fields for other API keys as needed)
+                inquirer.Confirm("confirm", message="Save changes?", default=False),
+            ]
+            answers = inquirer.prompt(questions)
+
+            if not answers["confirm"]:
+                break  # Return without saving
+
+            try:
+                # Update APIKeys model
+                current_keys.groq_api_key = answers["groq_api_key"]
+                # ... (Update other API keys in current_keys)
+
+                # Update the API keys using the tool
+                update_result = json.loads(self.tools.update_api_keys(current_keys.model_dump_json()))
+                if update_result["status"] == "success":
+                    self.console.print("API keys updated successfully.", style="green")
+                    # You might want to re-initialize the GroqService here if the API key changed
+                    self.groq_service = GroqService() # Re-initialize GroqService
+                    self.tools.groq_service = self.groq_service # Update tools with new groq_service
+                    break # Exit after successful update
+                else:
+                    self.console.print(f"Error updating API keys: {update_result['message']}", style="red")
+
+            except Exception as e:
+                self.console.print(f"An error occurred: {e}", style="red")
 
 
-# src/utils/menu_helpers.py
+        return "settings"
 
-#import inquirer
-#from src.config import Config
-#
-#def model_settings_menu(config):
-#    model_max_tokens = {
-#        "llama3-8b-8192": 8192,
-#        "llama3-70b-8192": 8192,
-#        "mixtral-8x7b-32768": 32768,
-#        "gemma-7b-it": 8192
-#    }
-#
-#    while True:
-#        setting = inquirer.prompt([
-#            inquirer.List('setting',
-#                          message="Choose a model setting to modify",
-#                          choices=['BACK', 'Model Name', 'Max Tokens', 'Temperature', 'Top P', 'Back'])
-#        ])['setting']
-#
-#        if setting == 'BACK' or setting == 'Back':
-#            break
-#
-#        elif setting == 'Model Name':
-#            choices = list(config.model_max_tokens.keys()) + ['Back']
-#            new_model = inquirer.prompt([
-#                inquirer.List('model', 
-#                            message="Choose the model to use", 
-#                            choices=choices)
-#            ])['model']
-#            if new_model != 'Back':
-#                config.update_model_settings(model=new_model)
-#        elif setting == 'Max Tokens':
-#            new_max_tokens = inquirer.prompt([
-#                inquirer.Text('max_tokens', 
-#                              message=f"Enter max tokens (current: {config.max_tokens}, range: 0-{model_max_tokens[config.groq_model]}, default: {config.DEFAULT_SETTINGS['MAX_TOKENS']}):", 
-#                              default=str(config.max_tokens))
-#            ])['max_tokens']
-#            if new_max_tokens.strip():
-#                config.update_model_settings(max_tokens=int(new_max_tokens))
-#
-#        elif setting == 'Temperature':
-#            new_temperature = inquirer.prompt([
-#                inquirer.Text('temperature', 
-#                              message=f"Enter temperature (current: {config.temperature}, range: 0.0-1.0, default: {config.DEFAULT_SETTINGS['TEMPERATURE']}):", 
-#                              default=str(config.temperature))
-#            ])['temperature']
-#            if new_temperature.strip():
-#                config.update_model_settings(temperature=float(new_temperature))
-#
-#        elif setting == 'Top P':
-#            new_top_p = inquirer.prompt([
-#                inquirer.Text('top_p', 
-#                              message=f"Enter top P (current: {config.top_p}, range: 0.0-1.0, default: {config.DEFAULT_SETTINGS['TOP_P']}):", 
-#                              default=str(config.top_p))
-#            ])['top_p']
-#            if new_top_p.strip():
-#                config.update_model_settings(top_p=float(new_top_p))
-#
-#def is_float(value):
-#    try:
-#        float(value)
-#        return True
-#    except ValueError:
-#        return False
-#
-#
-#def validate_max_tokens(answers, current):
-#    max_range = model_max_tokens[answers.get('model', config.groq_model)]
-#    return current.isdigit() and 0 <= int(current) <= max_range
-#
-#def validate_float_range(answers, current):
-#    return is_float(current) and 0.0 <= float(current) <= 1.0
-#
-#model_max_tokens = {
-#    "llama3-8b-8192": 8192,
-#    "llama3-70b-8192": 8192,
-#    "mixtral-8x7b-32768": 32768,
-#    "gemma-7b-it": 8192
-#}
-#
-#def validate_max_tokens(answers, current):
-#    max_range = model_max_tokens[config.groq_model]
-#    return current.isdigit() and 0 <= int(current) <= max_range
-#
-#def validate_float_range(answers, current):
-#    return is_float(current) and 0.0 <= float(current) <= 1.0
-#
-#
-#
-#def settings_menu(config: Config):
-#    while True:
-#        choices = ['BACK', 'Model Settings', 'API Keys', 'System Prompts', 'Back']
-#        choice = inquirer.prompt([
-#            inquirer.List('setting',
-#                          message="Choose a setting to modify:",
-#                          choices=choices)
-#        ])['setting']
-#
-#        if choice == 'BACK' or choice == 'Back':
-#            return 'back'
-#        elif choice == 'Model Settings':
-#            model_settings_menu(config)
-#        elif choice == 'API Keys':
-#            api_keys_menu(config)
-#        elif choice == 'System Prompts':
-#            result = system_prompts_menu(config)
-#            if result == 'chat':
-#                return 'chat'
-#
-#def api_keys_menu(config: Config):
-#    while True:
-#        new_groq_key = inquirer.prompt([
-#            inquirer.Text('groq_key',
-#                          message="Enter your new GROQ API key (leave empty to keep current):",
-#                          default='')
-#        ])['groq_key']
-#        
-#        new_tavily_key = inquirer.prompt([
-#            inquirer.Text('tavily_key',
-#                          message="Enter your new Tavily API key (leave empty to keep current):",
-#                          default='')
-#        ])['tavily_key']
-#
-#        # Adding a "BACK" option to exit the API keys menu
-#        back_choice = inquirer.prompt([
-#            inquirer.List('back', message="Go back?", choices=['BACK', 'Back'])
-#        ])['back']
-#
-#        if back_choice == 'BACK' or back_choice == 'Back':
-#            break
-#
-#def prompt_actions_menu(config: Config, index: int):
-#    while True:
-#        choices = ['BACK', 'Edit Prompt', 'Change Title', 'Move Up', 'Move Down', 'Pin/Unpin', 'Delete', 'Use', 'Back']
-#        action = inquirer.prompt([
-#            inquirer.List('action',
-#                          message=f"Actions for '{config.SYSTEM_PROMPTS[index]['title']}':",
-#                          choices=choices)
-#        ])['action']
-#
-#        if action == 'BACK' or action == 'Back':
-#            return 'back'
-#        elif action == 'Edit Prompt':
-#            edit_prompt(config, index)
-#        elif action == 'Change Title':
-#            change_title(config, index)
-#        elif action == 'Move Up':
-#            index = move_prompt(config, index, -1)
-#        elif action == 'Move Down':
-#            index = move_prompt(config, index, 1)
-#        elif action == 'Pin/Unpin':
-#            pin_unpin_prompt(config, index)
-#        elif action == 'Delete':
-#            if delete_prompt(config, index):
-#                return 'back'
-#        elif action == 'Use':
-#            use_prompt(config, index)
-#            return 'chat'
-#        
-#        config.save_system_prompts() 
-#
-#def system_prompts_menu(config: Config):
-#    while True:
-#        choices = ['BACK']
-#        choices += [f"{'[*] ' if i == config.active_prompt_index else '    '}{prompt['title']}" for i, prompt in enumerate(config.SYSTEM_PROMPTS)]
-#        choices += ['Add New Prompt', 'Switch Active Prompt', 'Back']
-#        
-#        choice = inquirer.prompt([
-#            inquirer.List('prompt',
-#                          message="Choose an action:",
-#                          choices=choices)
-#        ])['prompt']
-#
-#        if choice == 'BACK' or choice == 'Back':
-#            return 'back'
-#        elif choice == 'Add New Prompt':
-#            add_new_prompt(config)
-#        elif choice == 'Switch Active Prompt':
-#            result = switch_active_prompt(config)
-#            if result == 'chat':
-#                return 'chat'
-#        elif '[*]' in choice or choice.strip():
-#            index = next((i for i, prompt in enumerate(config.SYSTEM_PROMPTS) if prompt['title'] in choice), None)
-#            if index is not None:
-#                result = prompt_actions_menu(config, index)
-#                if result == 'chat':
-#                    return 'chat'
-#
-#        config.save_system_prompts() 
-#
-#def switch_active_prompt(config: Config):
-#    prompt_choices = [f"{i+1}. {prompt['title']}" for i, prompt in enumerate(config.SYSTEM_PROMPTS)]
-#    
-#    # Adding a "BACK" option to exit the switch prompt menu
-#    prompt_choices.insert(0, 'BACK')
-#
-#    choice = inquirer.prompt([
-#        inquirer.List('prompt', message="Choose a prompt to activate:", choices=prompt_choices)
-#    ])['prompt']
-#
-#    if choice == 'BACK':
-#        return 'back'
-#    else:
-#        # Logic to switch the active prompt
-#        pass
-#
-#def use_prompt(config: Config, index: int):
-#    config.set_active_prompt(index)
-#    set_key('.env', 'SYSTEM_PROMPT', config.system_prompt)
-#    set_key('.env', 'SYSTEM_PROMPT_TITLE', config.SYSTEM_PROMPTS[index]['title'])
-#    print(f"Active system prompt switched to: {config.SYSTEM_PROMPTS[index]['title']}")
-#    return 'chat'
-#
-#
-#def add_new_prompt(config: Config):
-#    new_title = inquirer.prompt([
-#        inquirer.Text('title', message="Enter the title for the new prompt:")
-#    ])['title']
-#    new_prompt = inquirer.prompt([
-#        inquirer.Text('prompt', message="Enter the new system prompt:")
-#    ])['prompt']
-#    config.SYSTEM_PROMPTS.append({'title': new_title, 'prompt': new_prompt, 'pinned': False})
-#    config.update_system_prompts(config.SYSTEM_PROMPTS)
-#
-#
-#def edit_prompt(config: Config, index: int):
-#    updated_prompt = inquirer.prompt([
-#        inquirer.Text('prompt',
-#                      message="Edit the system prompt:",
-#                      default=config.SYSTEM_PROMPTS[index]['prompt'])
-#    ])['prompt']
-#    config.SYSTEM_PROMPTS[index]['prompt'] = updated_prompt
-#    config.update_system_prompts(config.SYSTEM_PROMPTS)
-#
-#def change_title(config: Config, index: int):
-#    updated_title = inquirer.prompt([
-#        inquirer.Text('title',
-#                      message="Edit the prompt title:",
-#                      default=config.SYSTEM_PROMPTS[index]['title'])
-#    ])['title']
-#    config.SYSTEM_PROMPTS[index]['title'] = updated_title
-#    config.update_system_prompts(config.SYSTEM_PROMPTS)
-#
-#def move_prompt(config: Config, index: int, direction: int):
-#    new_index = index + direction
-#    if 0 <= new_index < len(config.SYSTEM_PROMPTS):
-#        config.SYSTEM_PROMPTS[index], config.SYSTEM_PROMPTS[new_index] = config.SYSTEM_PROMPTS[new_index], config.SYSTEM_PROMPTS[index]
-#        config.update_system_prompts(config.SYSTEM_PROMPTS)
-#        return new_index
-#    return index
-#
-#def pin_unpin_prompt(config: Config, index: int):
-#    config.SYSTEM_PROMPTS[index]['pinned'] = not config.SYSTEM_PROMPTS[index].get('pinned', False)
-#    pinned = [p for p in config.SYSTEM_PROMPTS if p.get('pinned', False)]
-#    unpinned = [p for p in config.SYSTEM_PROMPTS if not p.get('pinned', False)]
-#    config.SYSTEM_PROMPTS = pinned + unpinned
-#    config.update_system_prompts(config.SYSTEM_PROMPTS)
-#
-#def delete_prompt(config: Config, index: int):
-#    if len(config.SYSTEM_PROMPTS) > 1:
-#        del config.SYSTEM_PROMPTS[index]
-#        if config.active_prompt_index == index:
-#            config.active_prompt_index = 0
-#        elif config.active_prompt_index > index:
-#            config.active_prompt_index -= 1
-#        config.update_system_prompts(config.SYSTEM_PROMPTS)
-#        return True
-#    else:
-#        print("Cannot delete the last prompt.")
-#        return False
-#
-#def use_prompt(config: Config, index: int):
-#    config.set_active_prompt(index)
-#    set_key('.env', 'SYSTEM_PROMPT', config.system_prompt)
-#    set_key('.env', 'SYSTEM_PROMPT_TITLE', config.SYSTEM_PROMPTS[index]['title'])
-#    print(f"Active system prompt switched to: {config.SYSTEM_PROMPTS[index]['title']}")
-#    return 'main_menu'
+
+    def _add_new_prompt(self):
+        # Implement add new prompt logic here
+        self.console.print("Add new prompt (to be implemented)", style="yellow")
+        return "prompts" # Return to prompts menu after
+
+    def _switch_active_prompt(self):
+        # Implement switch active prompt logic here
+        self.console.print("Switch active prompt (to be implemented)", style="yellow")
+        return "prompts" # Return to prompts menu after
+
+   

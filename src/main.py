@@ -1,14 +1,31 @@
-print("Debug: Starting main.py")
+# src/main.py
+import os
+import json
+from src.assistant.utils.menu_helpers import MenuSystem
+from src.services.groq_api import GroqService
+from src.config import load_config
+from src.tools.tools import Tools # Import the Tools class
 
-from src.assistant.utils.menu_helpers import MenuHelper
-
+def register_tools(groq_service, tools: Tools): # Add tools parameter
+    groq_service.register_tool("search_history", tools.search_history)
+    groq_service.register_tool("execute_command", tools.execute_command)
+    groq_service.register_tool("provide_helpful_tips", tools.provide_helpful_tips)
+    groq_service.register_tool("get_api_keys", tools.get_api_keys)
+    groq_service.register_tool("update_api_keys", tools.update_api_keys)
 def main():
-    print("Debug: Starting main.py")
-    menu_helper = MenuHelper()
-    menu_helper.display_main_menu()
+    config = load_config()
+    try:
+        groq_service = GroqService()
+        tools = Tools(groq_service) # Instantiate Tools
+        register_tools(groq_service, tools) # Pass tools to register_tools
+    except Exception as e:
+        print(f"Error initializing services: {e}")
+        return
+
+    menu_system = MenuSystem(config, groq_service, tools) # Instantiate MenuSystem
+    menu_system.run() # Run the menu system
+
+
 
 if __name__ == "__main__":
     main()
-
-
-
