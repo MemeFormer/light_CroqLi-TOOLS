@@ -1,22 +1,18 @@
 # src/assistant/utils/menu_models.py
+
 from pydantic import BaseModel
-from typing import Optional, Dict, Callable, List
+from typing import Optional, Dict, Callable, List, Union
+from src.models.models import MenuSystemPrompt, ModelSettings  # Import the consolidated SystemPrompt model
 
 class MenuItem(BaseModel):
     title: str
     action: Optional[Callable] = None
-    submenu: Optional[Dict[str, 'MenuItem']] = None
+    submenu: Optional[Union[Dict[str, 'MenuItem'], Dict[str, dict]]] = None
     enabled: bool = True
     key_binding: str
 
     class Config:
-        arbitrary_types_allowed = True  # To allow Callable
-
-class SystemPrompt(BaseModel):
-    name: str
-    prompt_text: str
-    is_active: bool = False
-    pinned: bool = False
+        arbitrary_types_allowed = True
 
 class MenuState(BaseModel):
     current_menu: str = "main"

@@ -1,10 +1,13 @@
 # src/main.py
 import os
 import json
+from dotenv import load_dotenv
 from src.assistant.utils.menu_helpers import MenuSystem
 from src.services.groq_api import GroqService
-from src.config import load_config
+from src.config import load_config, Config
 from src.tools.tools import Tools # Import the Tools class
+
+
 
 def register_tools(groq_service, tools: Tools): # Add tools parameter
     groq_service.register_tool("search_history", tools.search_history)
@@ -12,8 +15,15 @@ def register_tools(groq_service, tools: Tools): # Add tools parameter
     groq_service.register_tool("provide_helpful_tips", tools.provide_helpful_tips)
     groq_service.register_tool("get_api_keys", tools.get_api_keys)
     groq_service.register_tool("update_api_keys", tools.update_api_keys)
+    groq_service.register_tool("search_tavily", tools.search_tavily) # Register search_tavily
 def main():
+    load_dotenv()
+    dotenv_path = os.path.abspath(".env") # Absolute path
+    load_dotenv(dotenv_path=dotenv_path)
+
+    
     config = load_config()
+    config.load_systemprompts_U() 
     try:
         groq_service = GroqService()
         tools = Tools(groq_service) # Instantiate Tools

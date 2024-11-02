@@ -7,11 +7,19 @@ import sqlite3
 import subprocess
 import shlex
 import json
-from typing import List, Dict, Any
-
+import requests
+from typing import List, Dict, Any, Union
+from pydantic import BaseModel
 from src.services.groq_api import GroqService  # Correct import
-from src.models.models import ShellAndOS, CommandResult, HelpfulTip, AtuinHistoryEntry, ModelSettings
-from src.assistant.system_info import get_system_info # Import get_system_info
+from src.models.models import ShellAndOS, CommandResult, HelpfulTip, ModelSettings, APIKeys, AtuinHistoryEntry
+from src.assistant.system_info import get_system_info
+from src.services.tavily_api import TavilyService  # Import TavilyService
+
+
+class ShellHistoryEntry(BaseModel):
+    command: str
+    timestamp: str = ""  # Default empty timestamp
+
 
 
 class Tools:
@@ -29,14 +37,17 @@ class Tools:
         operating_system = platform.system().lower()
         return ShellAndOS(shell=shell_name, os=operating_system)
     
-    def search_history(self, query: str, use_atuin: bool = True) -> str:
+    def search_history(self, query: str, use_atuin: bool = True)  -> Union[str, Dict]:
         if use_atuin:
             result = self._search_atuin_history(query) # Call the helper method
-            if result.get("results"):
-                return json.dumps(result)
-        return self._search_standard_shell_history(query, self.shell_and_os.shell) # Use self.shell_and_os
+            if "error" not in result:  # Check for errors
+                return json.dumps(result) # Return JSON on success
+            else:
+                return result # Return error dict directly
 
-    def _search_atuin_history(self, query: str) -> dict: # Helper method
+        return json.dumps(self._search_standard_shell_history(query, self.shell_and_os.shell)) # Use self.shell_and_os
+
+    def _search_atuin_history(self, query: str) -> Dict: # 
         """Searches Atuin history."""
         db_path = os.path.expanduser("~/.local/share/atuin/history.db")
         if not os.path.exists(db_path):
@@ -50,10 +61,10 @@ class Tools:
             conn.close()
 
         # Convert to Pydantic models and then to JSON
-            results = [AtuinHistoryEntry(command=row[1], timestamp=row[2]).model_dump(mode="json") for row in search_results]
-            return json.dumps({"results": results})
+            results = [entry.model_dump() for entry in search_results] # Use model_dump() without mode argument
+            return {"results": results}
         except Exception as e:
-            return json.dumps({"results": [], "error": str(e)})
+            return {"results": [], "error": str(e)}  # Consistent error handling
 
     def _get_history_file_path(self, shell_name: str) -> str:
         home = os.path.expanduser("~")
@@ -66,7 +77,7 @@ class Tools:
         else:
             return ""
   
-    def _search_standard_shell_history(self, query: str, shell_name: str) -> str: # Helper method
+    def _search_standard_shell_history(self, query: str, shell_name: str) -> Dict: 
         """Searches standard shell history."""
         history_file = self._get_history_file_path(shell_name)
         if not history_file or not os.path.exists(history_file):
@@ -77,47 +88,37 @@ class Tools:
                 history_lines = f.readlines()
         
             results = [
-                {"command": line.strip(), "timestamp": ""}
+                ShellHistoryEntry(command=line.strip()).model_dump()  # Use Pydantic model
                 for line in history_lines
-                if query.lower() in line.lower()
-        ]
-        
-            return json.dumps({"results": results})
+                if query.lower() in line.strip().lower() # Added strip() for consistency and to prevent errors if there are extra whitespaces
+            ]
+            return {"results": results}
+
         except Exception as e:
-            return json.dumps({"results": [], "error": str(e)})
+            return {"results": [], "error": str(e)}
 
     
     def generate_system_prompt(self) -> str:
-        """Generates the system prompt. Accepts ShellAndOS as JSON string and command history."""
-        platform_info = {
-            "macos": {"open_command": "open", "browser": "Safari"},
-            "linux": {"open_command": "xdg-open", "browser": "firefox"}
-        }
+        """Generates the system prompt."""
 
-        platform_data = platform_info.get(self.shell_and_os.os, {})
         history_info = '\n'.join([
             f"Previous Command: {h['command']}, Success: {h['success']}, Error: {h['error'] or 'None'}"
-            for h in self.command_history[-3:]  # Accessing global command_history - consider refactoring
-        ]) if self.command_history else "No command history available." # Handle empty history
+            for h in self.command_history[-3:]
+        ]) if self.command_history else "No command history available."
 
-        system_info_result = get_system_info() # Call get_system_info directly
+        system_info_result = get_system_info()
 
         prompt = f"""
         You are a CLI assistant for {self.shell_and_os.os.capitalize()} using {self.shell_and_os.shell} shell.
         Current system information:
-        {json.dumps(self.shell_and_os, indent=2)}
+        {system_info_result}  # Use the result of get_system_info directly
 
         Recent command history:
         {history_info}
 
-        Platform-specific information:
-        Open command: {platform_data.get('open_command', 'N/A')}
-        Default browser: {platform_data.get('browser', 'N/A')}
-
         Please provide shell commands to help the user. Return your response as a JSON object with a 'command' key.
         """
-        return prompt
-
+        return prompt    
     def execute_command(self, command: str) -> str:
         """Executes a shell command."""
         try:
@@ -197,8 +198,8 @@ class Tools:
         'error': error
     })
     # Keep only the last N commands in memory to avoid unbounded growth
-    if len(self.command_history) > self.COMMAND_HISTORY_LENGTH:
-        self.command_history.pop(0)
+        if len(self.command_history) > self.COMMAND_HISTORY_LENGTH:
+            self.command_history.pop(0)
 
     def log_command(self, user_prompt, command, success, output=None, error=None):
         """Log command execution results."""
@@ -226,4 +227,29 @@ class Tools:
             return json.dumps({"status": "success"})
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)})
-    # Add other tool functions here as needed
+   
+    def get_api_keys(self) -> str:
+        """Gets the current API keys."""
+        keys = APIKeys(groq_api_key=self.groq_service.api_key) # Get Groq API key from GroqService
+        return keys.model_dump_json()
+
+    def update_api_keys(self, api_keys_json: str) -> str:
+        """Updates the API keys."""
+        try:
+            api_keys = APIKeys.model_validate_json(api_keys_json)
+            self.groq_service.api_key = api_keys.groq_api_key # Update Groq API key in GroqService
+            # ... (Update other API keys as needed)
+            return json.dumps({"status": "success"})
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)})
+        
+    def search_tavily(self, query: str) -> str: # Add search_tavily method
+        """Searches Tavily API with the given query."""
+        try:
+            tavily_service = TavilyService()
+            json_body = {"query": query} # Construct the request body
+            response = tavily_service.post("/search", json=json_body) # Make the request
+            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+            return response.text # Return the response as text (or JSON if needed)
+        except requests.exceptions.RequestException as e: # Catch request exceptions
+            return json.dumps({"error": str(e)}) # Return JSON error message

@@ -6,8 +6,8 @@ from src.models.models import LLMModelParams, ChatMessage, ToolCall
 from src.config import load_config
 from typing import List, Dict, Any, Callable
 from dotenv import load_dotenv
-from instructor import instructor, Mode
-from pydantic import BaseModel
+import instructor
+from instructor import Mode
 
 
 class GroqService:
@@ -50,13 +50,17 @@ class GroqService:
             top_p=self.model_params.top_p,
             response_model=ToolCall # Use Pydantic model for structured output
         )
+        print(f"API Response keys: {response.model_dump().keys()}")
+        print(f"API Response choices: {response.choices}")
+
+        
         # Execute and return tool calls if any
         if response.tool_calls:
             tool_call = response.tool_calls[0]
             tool_name = tool_call.function.name
             tool_args = json.loads(tool_call.function.arguments)
             # Check for specific tool arguments and call the tool accordingly
-            if tool_name == "search_history_tool":
+            if tool_name == "search_history":
                 tool_result = selected_tools[tool_name](**tool_args) # Pass all arguments
             else:
                 tool_result = selected_tools[tool_name](**tool_args)

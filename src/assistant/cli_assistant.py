@@ -1,14 +1,10 @@
 import logging
-import os
 import traceback
 import json
 from rich.console import Console
-from dotenv import load_dotenv
 from src import config
-from typing import List, Dict, Any
 from src.services.groq_api import GroqService
-from rich.console import Console
-from src.models.models import ShellAndOS, AtuinHistoryEntry, HelpfulTip, ChatMessage # Import for type hinting
+from src.models.models import ShellAndOS, AtuinHistoryEntry, HelpfulTip # Import for type hinting
 from src.tools.tools import Tools  # Import the Tools class
 
 COMMAND_HISTORY_LENGTH = 10
@@ -55,12 +51,11 @@ def process_ai_response(response_json, user_input, shell_and_os: ShellAndOS, too
         console.print("Tip: An unexpected error occurred. Please try again.", style="yellow")
 
 
-def cli_assistant_mode(config, console: Console, groq_service: GroqService, tools: Tools):
+def cli_assistant_mode(config, console: Console, groq_service: GroqService, tools: Tools, shell_and_os: ShellAndOS) -> None:
     try:
         client = groq_service.client
         
-        shell_and_os = ShellAndOS.model_validate_json(tools.detect_shell_and_os()) # Parse JSON output
-
+        shell_and_os = tools._detect_shell_and_os()
         while True:
             user_input = console.input("Query:> ")
             if user_input.lower().strip() in ['exit', 'quit', '/menu']:

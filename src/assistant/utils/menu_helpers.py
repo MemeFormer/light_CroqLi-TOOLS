@@ -8,9 +8,11 @@ from src.tools.tools import Tools
 from src.assistant.chat import chat_mode
 from src.assistant.search import search_mode
 from src.assistant.cli_assistant import cli_assistant_mode
-from .menu_models import MenuItem, MenuState, SystemPrompt, ModelSettings
+from .menu_models import MenuItem, MenuState, MenuSystemPrompt, ModelSettings
+from src.models.models import MenuSystemPromptModel, MenuSystemPrompt
 import inquirer
 import json
+
 
 class MenuSystem:
     def __init__(self, config: Config, groq_service: GroqService, tools: Tools):
@@ -22,52 +24,53 @@ class MenuSystem:
         self.menus = self._create_menu_structure()
 
     def _create_menu_structure(self) -> Dict[str, Dict[str, MenuItem]]:
-        # Use a dictionary to store submenus for easier access
-        self.submenus: Dict[str, Dict[str, MenuItem]] = {
-            "settings": self._create_settings_menu(),
-            "system_prompts": self._create_prompts_menu(),
-            # ... Add other submenus here ...
+        # Create submenus first
+        settings_menu = self._create_settings_menu()
+        prompts_menu = self._create_prompts_menu()
+        
+        main_menu = {
+            "1": MenuItem(
+                title="Chat Mode",
+                action=self._start_chat,
+                key_binding="1",
+                enabled=True
+            ),
+            "2": MenuItem(
+                title="Search Mode",
+                action=self._start_search,
+                key_binding="2",
+                enabled=True
+            ),
+            "3": MenuItem(
+                title="CLI Assistant Mode",
+                action=self._start_cli_assistant,
+                key_binding="3",
+                enabled=True
+            ),
+            "4": MenuItem(
+                title="settings",
+                submenu=settings_menu,
+                key_binding="4",
+                enabled=True
+            ),
+            "5": MenuItem(
+                title="System Prompts",
+                submenu=prompts_menu,
+                key_binding="5",
+                enabled=True
+            ),
+            "6": MenuItem(
+                title="Quit",
+                action=self._quit,
+                key_binding="6",
+                enabled=True
+            )
         }
-
+    
         return {
-            "main": {
-                "1": MenuItem(
-                    title="Chat Mode",
-                    action=self._start_chat,
-                    key_binding="1",
-                    enabled=True
-                ),
-                "2": MenuItem(
-                    title="Search Mode",
-                    action=self._start_search,
-                    key_binding="2",
-                    enabled=True
-                ),
-                "3": MenuItem(
-                    title="CLI Assistant Mode",
-                    action=self._start_cli_assistant,
-                    key_binding="3",
-                    enabled=True
-                ),
-                "4": MenuItem(
-                    title="Settings",
-                    submenu=self._create_settings_menu(),
-                    key_binding="4",
-                    enabled=True
-                ),
-                "5": MenuItem(
-                    title="System Prompts",
-                    submenu=self._create_prompts_menu(),
-                    key_binding="5",
-                    enabled=True
-                ),
-                "6": MenuItem(
-                    title="Quit",
-                    action=self._quit,
-                    key_binding="6",
-                    enabled=True
-                )
-            }
+            "main": main_menu,
+            "settings": settings_menu,
+            "system_prompts": prompts_menu
         }
 
     def _create_settings_menu(self) -> Dict[str, MenuItem]:
@@ -77,27 +80,53 @@ class MenuSystem:
             "3": MenuItem(title="Back", action=lambda: "back", key_binding="3"), # Lambda for simple return
         }
     def _create_prompts_menu(self) -> Dict[str, MenuItem]:
-        return {  # Implement prompts menu structure
-            "1": MenuItem(title="Add New Prompt", action=self._add_new_prompt, key_binding="1"),
-            "2": MenuItem(title="Switch Active Prompt", action=self._switch_active_prompt, key_binding="2"),
-            # ... Add other prompt actions as needed ...
-            "3": MenuItem(title="Back", action=lambda: "back", key_binding="3"), # Lambda for simple return
-        }
+        """Shows the list of available system prompts with their active status and pin state"""
+        self.config.load_systemprompts_U()
+        
+        def get_status_markers(prompt):
+            """Create status indicators for a prompt"""
+            active = "●" if prompt.is_active else "○"  # Filled/empty circle for active status
+            pinned = "📌" if prompt.priority == 1 else "  "  # Pin emoji for pinned, spaces for unpinned
+            return f"{active} {pinned}"
+        
+        def display_prompts_list():
+            prompts = sorted(self.config.prompts, key=lambda p: (-p.priority, p.display_index))  # Sort pinned first
+            choices = []
+            
+            # First add pinned prompts
+            for prompt in prompts:
+                markers = get_status_markers(prompt)
+                choices.append(f"{markers} {prompt.display_index + 1}. {prompt.name}")
+            
+            questions = [
+                inquirer.List(
+                    "selected_prompt",
+                    message="Select a prompt (● = active, 📌 = pinned)",
+                    choices=choices,
+                ),
+            ]
+            
+            answer = inquirer.prompt(questions)
+            if answer:
+                # Extract the index from the selected prompt string
+                selected_idx = int(answer["selected_prompt"].split(".")[1].split()[0]) - 1
+                return self._show_prompt_actions_menu(selected_idx)
+            return "system_prompts"
 
     def _model_settings(self):
         """Model settings menu."""
         model_max_tokens = {
-        "llama3-8b-8192": 8192,
-        "llama3-70b-8192": 8192,
-        "mixtral-8x7b-32768": 32768,
-        "gemma-7b-it": 8192
+            "llama3-8b-8192": 8192,
+            "llama3-70b-8192": 8192,
+            "mixtral-8x7b-32768": 32768,
+            "gemma-7b-it": 8192
         }
 
         while True:
             current_settings = ModelSettings.model_validate_json(self.tools.get_model_settings())
-            setting = inquirer.prompt[
+            questions = [
                 inquirer.List(
-                    "setting",
+                    "Setting",
                     message="Choose a model setting to modify",
                     choices=[
                         "Model Name",
@@ -108,7 +137,8 @@ class MenuSystem:
                     ],
                 ),
             ]
-            setting = inquirer.prompt(questions)["setting"]
+            setting = inquirer.prompt(questions)["Setting"]
+
 
             if setting == "Back":
                 break
@@ -190,32 +220,40 @@ class MenuSystem:
 
     def handle_navigation(self, choice: str) -> bool:
         """Handle menu navigation with breadcrumb tracking"""
+        print(f"Current menu: {self.state.current_menu}")  # Debug
+        print(f"Available menus: {list(self.menus.keys())}")  # Debug
+        print(f"Choice: {choice}")  # Debug
+    
         if self.state.current_menu == "main":
             menu = self.menus[self.state.current_menu]
         else: # Access submenu
-            menu = self.submenus[self.state.current_menu]
+            menu = self.menus[self.state.current_menu]
 
         if choice not in menu:
             self.console.print("Invalid choice", style="bold red")
             return True
             
         item = menu[choice]
+        print(f"Selected item: {item.title}")  # Debug
+
         
         if item.submenu:
             self.state.breadcrumb.append(self.state.current_menu)
-            self.state.current_menu = item.title.lower().replace(" ", "_")
+            new_menu = item.title.lower().replace(" ", "_")  # Change spaces to underscores
+            print(f"Switching to menu: {new_menu}")  # Debug
+            self.state.current_menu = new_menu
         elif item.action:
             result = item.action()
             if result == "quit":
                 return False
             elif result == "back" and self.state.breadcrumb:
                 self.state.current_menu = self.state.breadcrumb.pop()
-        
+    
         return True
 
     def run(self):
         """Main menu loop with rich UI"""
-        self.console.print("Welcome to Light CroqLI!", style="bold green")
+        self.console.print("WelcOme to Light CroqLI TOOL!", style="bold green")
         
         while True:
             self.display_current_menu()
@@ -232,8 +270,8 @@ class MenuSystem:
         search_mode(self.config, self.console, self.groq_service)
         return "main" # Return to main menu after search mode
 
-    def _start_cli_assistant(self):
-        cli_assistant_mode(self.config, self.console, self.groq_service, self.tools)
+    def _start_cli_assistant(self, shell_and_os):
+        cli_assistant_mode(self.config, self.console, self.groq_service, self.tools, shell_and_os)
         return "main" # Return to main menu after CLI assistant mode
 
     def _quit(self):
@@ -286,15 +324,26 @@ class MenuSystem:
 
         return "settings"
 
-
     def _add_new_prompt(self):
-        # Implement add new prompt logic here
-        self.console.print("Add new prompt (to be implemented)", style="yellow")
-        return "prompts" # Return to prompts menu after
+        questions = [
+            inquirer.Text(
+                "name",
+                message="Enter the prompt name",
+            ),
+            inquirer.Text(
+                "prompt_text",
+                message="Enter the prompt text",
+            ),
+        ]
+        answers = inquirer.prompt(questions)
+        prompt = MenuSystemPrompt(name=answers["name"], prompt_text=answers["prompt_text"])
+    
+    
+    def switch_active_prompt(self, index: int):
+        """Switches the active prompt."""
+        self.config.set_active_prompt(index) # Call set_active_prompt to update system_prompt
+        self.config.save_systemprompts_U() # Save after switching
 
-    def _switch_active_prompt(self):
-        # Implement switch active prompt logic here
-        self.console.print("Switch active prompt (to be implemented)", style="yellow")
-        return "prompts" # Return to prompts menu after
-
-   
+    def _update_display_indices(self):
+         for idx, prompt_id in enumerate(self.config.display_order_U):
+             self.config.prompts_U[prompt_id].display_index = idx

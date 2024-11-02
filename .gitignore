@@ -127,3 +127,7 @@ light_CroqLI.code-workspace
 # VSCode settings
 .vscode/
 
+output.pstats
+pyproject.toml
+test_instructor_import.py
+uv.lock

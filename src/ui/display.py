@@ -13,7 +13,7 @@ from rich.markdown import Markdown
 
 
 def print_welcome_message():
-    print("Welcome to the CLI Assistant!")
+    print("WelcOme to the CLI Assistant!")
 
 def print_command_output(output):
     print(f"Output:\n{output}")
