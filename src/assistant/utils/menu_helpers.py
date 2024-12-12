@@ -9,7 +9,7 @@ from src.assistant.chat import chat_mode
 from src.assistant.search import search_mode
 from src.assistant.cli_assistant import cli_assistant_mode
 from .menu_models import MenuItem, MenuState, MenuSystemPrompt, ModelSettings
-from src.models.models import MenuSystemPromptModel, MenuSystemPrompt
+from src.models.models import MenuSystemPromptModel, MenuSystemPrompt, APIKeys
 import inquirer
 import json
 
@@ -26,7 +26,12 @@ class MenuSystem:
     def _create_menu_structure(self) -> Dict[str, Dict[str, MenuItem]]:
         # Create submenus first
         settings_menu = self._create_settings_menu()
-        prompts_menu = self._create_prompts_menu()
+        prompts_menu = {
+        "1": MenuItem(title="System Prompts", action=self._display_prompts_list, key_binding="1", enabled=True),
+        "2": MenuItem(title="Back", action=lambda: "back", key_binding="2", enabled=True)
+    }
+        
+    
         
         main_menu = {
             "1": MenuItem(
@@ -79,38 +84,207 @@ class MenuSystem:
             "2": MenuItem(title="API Keys", action=self._api_keys, key_binding="2"),
             "3": MenuItem(title="Back", action=lambda: "back", key_binding="3"), # Lambda for simple return
         }
+    
     def _create_prompts_menu(self) -> Dict[str, MenuItem]:
         """Shows the list of available system prompts with their active status and pin state"""
+        
+        prompts_menu = {
+            "1": MenuItem(title="Add New Prompt", action=self._add_new_prompt, key_binding="1"),
+            "2": MenuItem(title="Switch Active Prompt", action=self._switch_active_prompt, key_binding="2"),
+            "3": MenuItem(title="Pin/Unpin Prompt", action=self._pin_prompt, key_binding="3"),
+            "4": MenuItem(title="Move Prompt", action=self._move_prompt, key_binding="4"),
+            "5": MenuItem(title="Delete Prompt", action=self._delete_prompt, key_binding="5"),
+            "6": MenuItem(title="Back", action=lambda: "back", key_binding="6")
+        }
+        return prompts_menu
+    
+
+    def _display_prompts_list(self):
         self.config.load_systemprompts_U()
+
+        if not self.config.prompts:
+            self.console.print("No prompts available.", style="yellow")
+            return "system_prompts"
+
+        while True:
+            self._display_prompts()
+            choice = self.console.input("Enter prompt number (or 'b' to go back): ")
+
+            if choice.lower() == 'b':
+                return "system_prompts"
+
+            try:
+                prompt_index = int(choice) - 1
+                if 0 <= prompt_index < len(self.config.prompts):
+                    return self._show_prompt_actions_menu(prompt_index)
+                else:
+                    self.console.print("Invalid prompt number.", style="red")
+            except ValueError:
+                self.console.print("Invalid input. Please enter a number or 'b'.", style="red")
+
+    def _add_new_prompt(self):
+        """Add a new system prompt."""
+        questions = [
+            inquirer.Text(
+                "name",
+                message="Enter the prompt name",
+                validate=lambda _, x: bool(x.strip())
+            ),
+            inquirer.Text(
+                "prompt_text",
+                message="Enter the prompt text",
+                validate=lambda _, x: bool(x.strip())
+            ),
+            inquirer.Confirm(
+                "is_active",
+                message="Make this prompt active?",
+                default=False
+            )
+        ]
+
+        answers = inquirer.prompt(questions)
+        if answers:
+            try:
+                new_prompt = MenuSystemPrompt(
+                    name=answers["name"],
+                    prompt_text=answers["prompt_text"],
+                    is_active=answers["is_active"],
+                    priority=0  # Default to unpinned
+                )
+                self.config.add_prompt(new_prompt)
+                self.console.print("New prompt added successfully", style="green")
+            except Exception as e:
+                self.console.print(f"Error adding prompt: {e}", style="red")
+
+        return "system_prompts"
+    
+    def get_status_markers(prompt):
+        """Create status indicators for a prompt"""
+        active = "●" if prompt.is_active else "○"  # Filled/empty circle for active status
+        pinned = "📌" if prompt.priority == 1 else "  "  # Pin emoji for pinned, spaces for unpinned
+        return f"{active} {pinned}"    
         
-        def get_status_markers(prompt):
-            """Create status indicators for a prompt"""
-            active = "●" if prompt.is_active else "○"  # Filled/empty circle for active status
-            pinned = "📌" if prompt.priority == 1 else "  "  # Pin emoji for pinned, spaces for unpinned
+    def _display_prompts(self):
+        for i, prompt in enumerate(self.config.prompts):
+            markers = self._get_status_markers(prompt)
+            self.console.print(f"{i+1}. {markers} {prompt.name}")
+
+    def _get_status_markers(self, prompt):
+            active = "●" if prompt.is_active else "○"
+            pinned = "📌" if prompt.priority == 1 else "  "
             return f"{active} {pinned}"
-        
-        def display_prompts_list():
-            prompts = sorted(self.config.prompts, key=lambda p: (-p.priority, p.display_index))  # Sort pinned first
-            choices = []
-            
-            # First add pinned prompts
-            for prompt in prompts:
-                markers = get_status_markers(prompt)
-                choices.append(f"{markers} {prompt.display_index + 1}. {prompt.name}")
-            
+
+
+    def _show_prompt_actions_menu(self, selected_idx: int) -> str:
+        """Shows the actions menu for a selected prompt."""
+        if not self.config.prompt_exists(selected_idx):
+            self.console.print("Invalid prompt index.", style="red")
+            return "system_prompts"
+
+        while True:
+            prompt = self.config.prompts[selected_idx]
+            actions = {
+                "1": ("Activate", self.config.set_active_prompt),
+                "2": ("Pin/Unpin", self.config.pin_prompt),
+                "3": ("Move Up", lambda: self.config.move_prompt(selected_idx, -1)),
+                "4": ("Move Down", lambda: self.config.move_prompt(selected_idx, 1)),
+                "5": ("Delete", self.config.delete_prompt),
+                "6": ("Back", lambda: None), # Return to prompts menu
+            }
+
+            self.console.print(f"\nPrompt: {prompt.name}", style="bold")
+            for key, (action_name, _) in actions.items():
+                self.console.print(f"{key}. {action_name}")
+
+            choice = self.console.input("Choose action: ")
+
+            if choice == "6":
+                break
+
+            action_name, action_func = actions.get(choice, (None, None))
+            if action_func:
+                try:
+                    if action_name in ("Move Up", "Move Down", "Delete"):
+                        action_func()  # These actions don't take an index argument
+                        self._update_display_indices()
+                    else:
+                        action_func(selected_idx)
+                    self.config.save_systemprompts_U()  # Save changes
+                    self.console.print(f"Action '{action_name}' completed successfully.", style="green")
+
+                except Exception as e:
+                    self.console.print(f"Error: {e}", style="red")
+            else:
+                self.console.print("Invalid choice.", style="red")
+
+        return "system_prompts"
+
+    def _move_prompt(self):
+        """Move a system prompt up or down."""
+        try:
+            prompts = self.config.prompts
+            if not prompts:
+                self.console.print("No prompts available", style="yellow")
+                return "system_prompts"
+
+            choices = [f"{idx}. {prompt.name}" for idx, prompt in enumerate(prompts)]
             questions = [
                 inquirer.List(
-                    "selected_prompt",
-                    message="Select a prompt (● = active, 📌 = pinned)",
-                    choices=choices,
+                    "prompt_index",
+                    message="Select prompt to move:",
+                    choices=choices
                 ),
+                inquirer.List(
+                    "direction",
+                    message="Move direction:",
+                    choices=["Up", "Down"]
+                )
             ]
-            
+
             answer = inquirer.prompt(questions)
             if answer:
-                # Extract the index from the selected prompt string
-                selected_idx = int(answer["selected_prompt"].split(".")[1].split()[0]) - 1
-                return self._show_prompt_actions_menu(selected_idx)
+                idx = int(answer["prompt_index"].split(".")[0])
+                direction = -1 if answer["direction"] == "Up" else 1
+                self.config.move_prompt(idx, direction)
+                self._update_display_indices()
+                self.console.print("Prompt moved successfully", style="green")
+
+            return "system_prompts"
+        except Exception as e:
+            self.console.print(f"Error: {e}", style="red")
+            return "system_prompts"
+
+    def _delete_prompt(self):
+        """Delete a system prompt."""
+        try:
+            prompts = self.config.prompts
+            if not prompts:
+                self.console.print("No prompts available", style="yellow")
+                return "system_prompts"
+
+            choices = [f"{idx}. {prompt.name}" for idx, prompt in enumerate(prompts)]
+            questions = [
+                inquirer.List(
+                    "prompt_index",
+                    message="Select prompt to delete:",
+                    choices=choices
+                ),
+                inquirer.Confirm(
+                    "confirm",
+                    message="Are you sure you want to delete this prompt?",
+                    default=False
+                )
+            ]
+
+            answer = inquirer.prompt(questions)
+            if answer and answer["confirm"]:
+                idx = int(answer["prompt_index"].split(".")[0])
+                self.config.delete_prompt(idx)
+                self.console.print("Prompt deleted successfully", style="green")
+
+            return "system_prompts"
+        except Exception as e:
+            self.console.print(f"Error: {e}", style="red")
             return "system_prompts"
 
     def _model_settings(self):
@@ -220,35 +394,28 @@ class MenuSystem:
 
     def handle_navigation(self, choice: str) -> bool:
         """Handle menu navigation with breadcrumb tracking"""
-        print(f"Current menu: {self.state.current_menu}")  # Debug
-        print(f"Available menus: {list(self.menus.keys())}")  # Debug
-        print(f"Choice: {choice}")  # Debug
+       
+        menu = self.menus[self.state.current_menu]
     
-        if self.state.current_menu == "main":
-            menu = self.menus[self.state.current_menu]
-        else: # Access submenu
-            menu = self.menus[self.state.current_menu]
-
         if choice not in menu:
             self.console.print("Invalid choice", style="bold red")
             return True
-            
-        item = menu[choice]
-        print(f"Selected item: {item.title}")  # Debug
 
-        
+        item = menu[choice]
+
         if item.submenu:
             self.state.breadcrumb.append(self.state.current_menu)
-            new_menu = item.title.lower().replace(" ", "_")  # Change spaces to underscores
-            print(f"Switching to menu: {new_menu}")  # Debug
-            self.state.current_menu = new_menu
+            if item.title == "System Prompts":
+                self.state.current_menu = "system_prompts"
+            else:
+                self.state.current_menu = item.title.lower().replace(" ", "_")
         elif item.action:
             result = item.action()
             if result == "quit":
                 return False
             elif result == "back" and self.state.breadcrumb:
                 self.state.current_menu = self.state.breadcrumb.pop()
-    
+
         return True
 
     def run(self):
@@ -270,7 +437,8 @@ class MenuSystem:
         search_mode(self.config, self.console, self.groq_service)
         return "main" # Return to main menu after search mode
 
-    def _start_cli_assistant(self, shell_and_os):
+    def _start_cli_assistant(self):
+        shell_and_os = self.tools._detect_shell_and_os() # Get shell_and_os from tools
         cli_assistant_mode(self.config, self.console, self.groq_service, self.tools, shell_and_os)
         return "main" # Return to main menu after CLI assistant mode
 
@@ -279,9 +447,15 @@ class MenuSystem:
         return "quit"
 
     def _model_settings(self):
+        try:
+            current_settings = ModelSettings.model_validate_json(self.tools.get_model_settings())
+        
         # Implement model settings logic here
-        self.console.print("Model settings menu (to be implemented)", style="yellow")
-        return "settings" # Return to settings menu after
+            self.console.print("Model settings menu (to be implemented)", style="yellow")
+            return "settings" # Return to settings menu after
+        except Exception as e:
+            self.console.print(f"Error loading model settings: {e}", style="red")
+            return "settings"
 
     def _api_keys(self):
         """API keys menu."""
@@ -325,25 +499,98 @@ class MenuSystem:
         return "settings"
 
     def _add_new_prompt(self):
+        """Add a new system prompt."""
         questions = [
             inquirer.Text(
                 "name",
                 message="Enter the prompt name",
+                validate=lambda _, x: bool(x.strip())
             ),
             inquirer.Text(
                 "prompt_text",
                 message="Enter the prompt text",
+                validate=lambda _, x: bool(x.strip())
             ),
+            inquirer.Confirm(
+                "is_active",
+                message="Make this prompt active?",
+                default=False
+            )
         ]
-        answers = inquirer.prompt(questions)
-        prompt = MenuSystemPrompt(name=answers["name"], prompt_text=answers["prompt_text"])
-    
-    
-    def switch_active_prompt(self, index: int):
-        """Switches the active prompt."""
-        self.config.set_active_prompt(index) # Call set_active_prompt to update system_prompt
-        self.config.save_systemprompts_U() # Save after switching
 
+        answers = inquirer.prompt(questions)
+        if answers:
+            try:
+                prompt = MenuSystemPrompt(
+                    name=answers["name"],
+                    prompt_text=answers["prompt_text"],
+                    is_active=answers["is_active"]
+                )
+                self.config.add_prompt(prompt)
+                self.console.print("New prompt added successfully", style="green")
+            except Exception as e:
+                self.console.print(f"Error adding prompt: {e}", style="red")
+
+        return "system_prompts"
+
+    def _pin_prompt(self):
+        """Pin/Unpin a system prompt."""
+        try:
+            prompts = self.config.prompts
+            if not prompts:
+                self.console.print("No prompts available", style="yellow")
+                return "system_prompts"
+                
+            choices = [f"{idx}. {prompt.name}" for idx, prompt in enumerate(prompts)]
+            questions = [
+                inquirer.List(
+                    "prompt_index",
+                    message="Select prompt to pin/unpin:",
+                    choices=choices
+                )
+            ]
+            
+            answer = inquirer.prompt(questions)
+            if answer:
+                idx = int(answer["prompt_index"].split(".")[0])
+                self.config.pin_prompt(idx)
+                self.console.print("Prompt pin status toggled", style="green")
+                
+            return "system_prompts"
+        except Exception as e:
+            self.console.print(f"Error: {e}", style="red")
+            return "system_prompts"
+
+    def _switch_active_prompt(self):
+        """Switch the active system prompt."""
+        try:
+            prompts = self.config.prompts
+            if not prompts:
+                self.console.print("No prompts available", style="yellow")
+                return "system_prompts"
+                
+            choices = [f"{idx}. {prompt.name}" for idx, prompt in enumerate(prompts)]
+            questions = [
+                inquirer.List(
+                    "prompt_index",
+                    message="Select prompt to activate:",
+                    choices=choices
+                )
+            ]
+            
+            answer = inquirer.prompt(questions)
+            if answer:
+                idx = int(answer["prompt_index"].split(".")[0])
+                self.config.set_active_prompt(idx)
+                self.console.print("Active prompt updated", style="green")
+                
+            return "system_prompts"
+        except Exception as e:
+            self.console.print(f"Error: {e}", style="red")
+            return "system_prompts"
+
+    
+   
     def _update_display_indices(self):
          for idx, prompt_id in enumerate(self.config.display_order_U):
              self.config.prompts_U[prompt_id].display_index = idx

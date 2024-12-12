@@ -6,15 +6,9 @@ import uuid
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from typing import Any
+from src.models.models import MenuSystemPrompt, MenuSystemPromptModel
 
 
-class SystemPrompt(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    content: str
-    name: str
-    priority: int = 0  # Assuming 0 for NORMAL, 1 for PINNED
-    is_active: bool = False
-    display_index: int = 0
 
 class Config(BaseModel):
     groq_model: str = "llama3-70b-8192"
@@ -23,39 +17,117 @@ class Config(BaseModel):
     top_p: float = 0.9
     system_prompt: str = ""
     active_prompt_index: int = 0
-    load_systemprompts: List[Dict[str, Any]] = Field(default_factory=list)  # Store all prompts
-    groq_api_key: Optional[str] = None  # Make groq_api_key optional
-    prompts_U: Dict[str, SystemPrompt] = Field(default_factory=dict)  # id -> prompt mapping
-    display_order_U: List[str] = Field(default_factory=list)  # List of prompt IDs in display order
+    load_systemprompts: List[Dict[str, Any]] = Field(default_factory=list)
+    groq_api_key: Optional[str] = None
+    prompts_U: Dict[str, MenuSystemPrompt] = Field(default_factory=dict)  # Changed to MenuSystemPrompt
+    display_order_U: List[str] = Field(default_factory=list)
     active_prompt_id_U: Optional[str] = None
 
-  
-  
+    def __init__(self, **data):
+        super().__init__(**data)
+        if not self.prompts_U:  # If no prompts exist, create default ones
+            self._create_default_prompts()
+
+    def _create_default_prompts(self):
+        default_prompts = [
+            MenuSystemPrompt(
+                name="General Assistant",
+                prompt_text="You are a helpful assistant that provides clear and concise answers.",
+                is_active=True,
+                priority=1  # Pinned
+            ),
+            MenuSystemPrompt(
+                name="Code Helper",
+                prompt_text="You are a coding assistant that helps with programming questions and debugging.",
+                is_active=False,
+                priority=0
+            ),
+            MenuSystemPrompt(
+                name="Technical Writer",
+                prompt_text="You are a technical writing assistant that helps create documentation and explanations.",
+                is_active=False,
+                priority=0
+            ),
+            MenuSystemPrompt(
+                name="CLI Expert",
+                prompt_text="You are a command-line expert that helps with shell commands and automation.",
+                is_active=False,
+                priority=0
+            ),
+            MenuSystemPrompt(
+                name="System Administrator",
+                prompt_text="You are a system administration expert that helps with system management tasks.",
+                is_active=False,
+                priority=0
+            )
+        ]
+
+        for prompt in default_prompts:
+            self.prompts_U[prompt.id] = prompt
+            self.display_order_U.append(prompt.id)
+        
+        # Set the first prompt as active
+        self.active_prompt_id_U = self.display_order_U[0]
+
     @property
-    def prompts(self) -> List[SystemPrompt]:
+    def prompts(self) -> List[MenuSystemPrompt]:
         return [self.prompts_U[prompt_id] for prompt_id in self.display_order_U]
 
     @property
-    def active_prompt(self) -> Optional[SystemPrompt]:
+    def active_prompt(self) -> Optional[MenuSystemPrompt]:
         if self.active_prompt_id_U:
             return self.prompts_U.get(self.active_prompt_id_U)
         return None
 
-    def add_prompt(self, name: str, prompt_text: str) -> None:
-        if not name or not prompt_text:
+    def add_prompt(self, new_prompt: MenuSystemPrompt) -> None:
+        """Add a new prompt from MenuSystemPrompt object"""
+        if not new_prompt.name or not new_prompt.prompt_text:
             raise ValueError("Name and prompt text cannot be empty")
-        prompt = SystemPrompt(content=prompt_text, name=name)
-        self.prompts_U[prompt.id] = prompt
-        self.display_order_U.append(prompt.id)
+            
+        prompt = MenuSystemPrompt(
+            content=new_prompt.prompt_text,
+            name=new_prompt.name,
+            is_active=new_prompt.is_active,
+            priority=new_prompt.priority
+        )
+        
+        self.prompts_U[prompt.id] = new_prompt
+        self.display_order_U.append(new_prompt.id)
+        
+        if new_prompt.is_active:
+            self._set_active_prompt(len(self.display_order_U) - 1)
+            
         self._update_display_indices()
-        self.save_config()
+        self.save_systemprompts_U()
+
+    def update_prompt(self, display_idx: int, updated_prompt: MenuSystemPrompt) -> None:
+        """Update an existing prompt"""
+        if not (0 <= display_idx < len(self.display_order_U)):
+            raise ValueError("Invalid display index")
+            
+        prompt_id = self.display_order_U[display_idx]
+        prompt = self.prompts_U[prompt_id]
+        
+        prompt.name = updated_prompt.name
+        prompt.content = updated_prompt.prompt_text
+        
+        if updated_prompt.is_active:
+            self._set_active_prompt(display_idx)
+        
+        self.save_systemprompts_U()
 
     def _update_display_indices(self):
         for idx, prompt_id in enumerate(self.display_order_U):
             self.prompts_U[prompt_id].display_index = idx
 
-    
-    def set_active_prompt(self, display_idx: int):
+    def set_active_prompt(self, display_idx: int) -> None:
+        """Public method to set active prompt"""
+        self._set_active_prompt(display_idx)
+
+    def pin_prompt(self, display_idx: int) -> None:
+        """Public method to toggle pin status"""
+        self._pin_prompt(display_idx)
+    def _set_active_prompt(self, display_idx: int):
         try:
             if display_idx is None:
                 self.active_prompt_id_U = None
@@ -72,7 +144,7 @@ class Config(BaseModel):
         except Exception as e:
             raise RuntimeError(f"Failed to set active prompt: {str(e)}")
 
-    def pin_prompt(self, display_idx: int) -> None:
+    def _pin_prompt(self, display_idx: int) -> None:
             """Toggle pin status of a prompt"""
             try:
                 if not (0 <= display_idx < len(self.display_order_U)):
@@ -116,6 +188,10 @@ class Config(BaseModel):
         self.display_order_U.insert(insertion_idx, changed_prompt_id)
 
     def move_prompt(self, display_idx: int, direction: int) -> None:
+        """Public method to move prompt"""
+        self._move_prompt(display_idx, direction)
+
+    def _move_prompt(self, display_idx: int, direction: int) -> None:
         """Move a prompt up or down within its priority group"""
         try:
             if not (0 <= display_idx < len(self.display_order_U)):
@@ -159,7 +235,7 @@ class Config(BaseModel):
         try:
             with open(prompts_file, "r") as f:
                 data = json.load(f)
-                self.prompts_U = {pid: SystemPrompt(**pdata) for pid, pdata in data.get("prompts", {}).items()}
+                self.prompts_U = {pid: MenuSystemPrompt(**pdata) for pid, pdata in data.get("prompts", {}).items()}
                 self.display_order_U = data.get("display_order", [])
                 self.active_prompt_id_U = data.get("active_prompt_id")
                 self._update_display_indices()
@@ -178,6 +254,32 @@ class Config(BaseModel):
                 }, f, indent=4)
         except IOError as e:
             raise RuntimeError(f"Failed to save system prompts: {str(e)}")
+
+    def rename_prompt(self, display_idx: int, new_name: str) -> None:
+        """Rename a prompt"""
+        if not (0 <= display_idx < len(self.display_order_U)):
+            raise ValueError("Invalid display index")
+        
+        prompt_id = self.display_order_U[display_idx]
+        self.prompts_U[prompt_id].name = new_name
+        self.save_systemprompts_U()
+
+    def edit_prompt_text(self, display_idx: int, new_text: str) -> None:
+        """Edit prompt text"""
+        if not (0 <= display_idx < len(self.display_order_U)):
+            raise ValueError("Invalid display index")
+        
+        prompt_id = self.display_order_U[display_idx]
+        self.prompts_U[prompt_id].content = new_text
+        self.save_systemprompts_U()
+
+    def get_prompt(self, display_idx: int) -> Optional[MenuSystemPrompt]:
+        """Get prompt by display index"""
+        if not (0 <= display_idx < len(self.display_order_U)):
+            return None
+        
+        prompt_id = self.display_order_U[display_idx]
+        return self.prompts_U.get(prompt_id)
 
     def save_config(self, config_file: str = "config.json") -> None:
         try:
@@ -202,6 +304,26 @@ class Config(BaseModel):
 
     def prompt_exists(self, display_idx: int) -> bool:
         return 0 <= display_idx < len(self.display_order_U)
+
+    def to_db_model(self, menu_prompt: MenuSystemPrompt) -> MenuSystemPromptModel:
+        """Convert MenuSystemPrompt to MenuSystemPromptModel for database storage"""
+        return MenuSystemPromptModel(
+            id=menu_prompt.id,
+            name=menu_prompt.name,
+            prompt_text=menu_prompt.prompt_text,
+            pinned=(menu_prompt.priority == 1),
+            is_active=menu_prompt.is_active
+        )
+
+    def from_db_model(self, db_model: MenuSystemPromptModel) -> MenuSystemPrompt:
+        """Convert MenuSystemPromptModel to MenuSystemPrompt"""
+        return MenuSystemPrompt(
+            id=db_model.id,
+            name=db_model.name,
+            prompt_text=db_model.prompt_text,
+            priority=1 if db_model.pinned else 0,
+            is_active=db_model.is_active
+        )
 
 def load_config(config_file="config.json") -> Config: 
        if os.path.exists(config_file):

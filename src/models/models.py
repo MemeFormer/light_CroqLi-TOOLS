@@ -83,7 +83,9 @@ class ChatSystemPrompt(BaseSystemPrompt):
 class MenuSystemPrompt(BaseSystemPrompt):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     prompt_text: str
-    pinned: bool = False
+    priority: int = 0  # 0 for unpinned, 1 for pinned
+    is_active: bool = False
+    display_index: int = 0
 
     class Config:
         from_attributes = True

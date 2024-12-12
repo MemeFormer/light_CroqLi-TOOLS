@@ -119,6 +119,11 @@ class Tools:
         Please provide shell commands to help the user. Return your response as a JSON object with a 'command' key.
         """
         return prompt    
+    
+    def generate_response(self, messages, tools=None):
+        return self.groq_service.generate_response(messages, tools)
+
+
     def execute_command(self, command: str) -> str:
         """Executes a shell command."""
         try:
