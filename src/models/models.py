@@ -51,6 +51,7 @@ class ModelSettings(BaseModel):
 
 class APIKeys(BaseModel):
     groq_api_key: str
+    tavily_api_key: str = ""  # Optional, defaults to empty string
 
 class AtuinHistoryEntry(BaseModel):
     command: str

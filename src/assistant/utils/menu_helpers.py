@@ -468,7 +468,11 @@ class MenuSystem:
                     message="Enter your new GROQ API key (leave empty to keep current):",
                     default=current_keys.groq_api_key,
                 ),
-                # ... (Add input fields for other API keys as needed)
+                inquirer.Text(
+                    "tavily_api_key",
+                    message="Enter your Tavily API key (leave empty to keep current):",
+                    default=current_keys.tavily_api_key,
+                ),
                 inquirer.Confirm("confirm", message="Save changes?", default=False),
             ]
             answers = inquirer.prompt(questions)
@@ -479,59 +483,23 @@ class MenuSystem:
             try:
                 # Update APIKeys model
                 current_keys.groq_api_key = answers["groq_api_key"]
-                # ... (Update other API keys in current_keys)
+                current_keys.tavily_api_key = answers["tavily_api_key"]
 
                 # Update the API keys using the tool
                 update_result = json.loads(self.tools.update_api_keys(current_keys.model_dump_json()))
                 if update_result["status"] == "success":
                     self.console.print("API keys updated successfully.", style="green")
-                    # You might want to re-initialize the GroqService here if the API key changed
-                    self.groq_service = GroqService() # Re-initialize GroqService
-                    self.tools.groq_service = self.groq_service # Update tools with new groq_service
-                    break # Exit after successful update
+                    # Re-initialize services with new API keys
+                    self.groq_service = GroqService()  # Re-initialize GroqService
+                    self.tools.groq_service = self.groq_service  # Update tools with new groq_service
+                    break  # Exit after successful update
                 else:
                     self.console.print(f"Error updating API keys: {update_result['message']}", style="red")
 
             except Exception as e:
                 self.console.print(f"An error occurred: {e}", style="red")
 
-
         return "settings"
-
-    def _add_new_prompt(self):
-        """Add a new system prompt."""
-        questions = [
-            inquirer.Text(
-                "name",
-                message="Enter the prompt name",
-                validate=lambda _, x: bool(x.strip())
-            ),
-            inquirer.Text(
-                "prompt_text",
-                message="Enter the prompt text",
-                validate=lambda _, x: bool(x.strip())
-            ),
-            inquirer.Confirm(
-                "is_active",
-                message="Make this prompt active?",
-                default=False
-            )
-        ]
-
-        answers = inquirer.prompt(questions)
-        if answers:
-            try:
-                prompt = MenuSystemPrompt(
-                    name=answers["name"],
-                    prompt_text=answers["prompt_text"],
-                    is_active=answers["is_active"]
-                )
-                self.config.add_prompt(prompt)
-                self.console.print("New prompt added successfully", style="green")
-            except Exception as e:
-                self.console.print(f"Error adding prompt: {e}", style="red")
-
-        return "system_prompts"
 
     def _pin_prompt(self):
         """Pin/Unpin a system prompt."""

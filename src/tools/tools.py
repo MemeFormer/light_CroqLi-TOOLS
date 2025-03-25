@@ -235,26 +235,84 @@ class Tools:
    
     def get_api_keys(self) -> str:
         """Gets the current API keys."""
-        keys = APIKeys(groq_api_key=self.groq_service.api_key) # Get Groq API key from GroqService
+        keys = APIKeys(
+            groq_api_key=self.groq_service.api_key,
+            tavily_api_key=os.getenv("TAVILY_API_KEY", "")  # Get Tavily API key from environment
+        )
         return keys.model_dump_json()
 
     def update_api_keys(self, api_keys_json: str) -> str:
         """Updates the API keys."""
         try:
             api_keys = APIKeys.model_validate_json(api_keys_json)
-            self.groq_service.api_key = api_keys.groq_api_key # Update Groq API key in GroqService
-            # ... (Update other API keys as needed)
+            
+            # Update Groq API key
+            self.groq_service.api_key = api_keys.groq_api_key
+            os.environ["GROQ_API_KEY"] = api_keys.groq_api_key
+            
+            # Update Tavily API key
+            os.environ["TAVILY_API_KEY"] = api_keys.tavily_api_key
+            
+            # Save to .env file
+            env_path = os.path.join(os.getcwd(), ".env")
+            try:
+                with open(env_path, "w") as f:
+                    f.write(f"GROQ_API_KEY={api_keys.groq_api_key}\n")
+                    f.write(f"TAVILY_API_KEY={api_keys.tavily_api_key}\n")
+            except Exception as e:
+                print(f"Warning: Could not save API keys to .env file: {e}")
+            
             return json.dumps({"status": "success"})
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)})
         
-    def search_tavily(self, query: str) -> str: # Add search_tavily method
-        """Searches Tavily API with the given query."""
+    def search_tavily(self, query: str) -> str:
+        """
+        Search the web using Tavily API and return formatted results.
+        """
+        print(f"Executing Tavily search...")
+        print(f"Sending search request to Tavily API for query: {query}")
+        
         try:
             tavily_service = TavilyService()
-            json_body = {"query": query} # Construct the request body
-            response = tavily_service.post("/search", json=json_body) # Make the request
-            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
-            return response.text # Return the response as text (or JSON if needed)
-        except requests.exceptions.RequestException as e: # Catch request exceptions
-            return json.dumps({"error": str(e)}) # Return JSON error message
+            # Prepare search parameters according to API docs
+            search_params = {
+                "query": query,
+                "search_depth": "advanced",  # Use advanced for more comprehensive results
+                "include_answer": True,
+                "include_raw_content": False,
+                "include_images": False,
+                "include_image_descriptions": False,
+                "max_results": 5  # Limit to 5 results for readability
+            }
+            
+            # Send search request
+            response = tavily_service.post("/search", search_params)
+            
+            if not response:
+                return "No results found."
+            
+            # Extract and format results according to API response format
+            answer = response.get("answer", "")
+            results = response.get("results", [])
+            
+            # Format the response
+            formatted_response = f"Answer: {answer}\n\nSources:\n"
+            
+            for idx, source in enumerate(results, 1):
+                title = source.get("title", "Untitled")
+                url = source.get("url", "No URL")
+                content = source.get("content", "").strip()
+                
+                # Truncate content if too long
+                if len(content) > 200:
+                    content = content[:197] + "..."
+                
+                formatted_response += f"\n{idx}. {title}\n   URL: {url}\n   Summary: {content}\n"
+            
+            return formatted_response
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Tavily API request failed: {error_msg}")
+            return f"Search failed: {error_msg}"

@@ -325,17 +325,17 @@ class Config(BaseModel):
             is_active=db_model.is_active
         )
 
-def load_config(config_file="config.json") -> Config: 
-       if os.path.exists(config_file):
-           with open(config_file, "r") as f:
-               config_data = json.load(f)
-               # Add the API key from the environment if it's not in the config file
-               if "groq_api_key" not in config_data or not config_data["groq_api_key"]:
-                   config_data["groq_api_key"] = os.getenv("GROQ_API_KEY")
-               config = Config(**config_data)  # Create the Config object after potentially adding the API key
-               return config
-       else:
-           api_key = os.getenv("GROQ_API_KEY")
-           if not api_key:
-               raise ValueError("GROQ_API_KEY environment variable not set.") # Raise an error if the API key is not found
-           return Config(groq_api_key=api_key) # Create Config object with the API key
+def load_config():
+    print("Loading config...")
+    try:
+        with open("config.json", "r") as f:
+            print("Reading config.json...")
+            config_data = json.load(f)
+            print(f"Config data: {config_data}")
+            return Config(**config_data)
+    except FileNotFoundError:
+        print("No config.json found, using default config")
+        return Config()
+    except Exception as e:
+        print(f"Error loading config: {str(e)}")
+        return Config()
