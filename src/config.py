@@ -259,14 +259,49 @@ class Config(BaseModel):
         except Exception as e:
             raise RuntimeError(f"Failed to move prompt: {str(e)}")
 
-    def delete_prompt(self, display_idx: int):
-        try:
-            prompt_id = self.prompts.pop(self.prompts.keys()[display_idx])
-            if self.active_prompt_id == prompt_id:
-                self.set_active_prompt(None)
+    def delete_prompt(self, prompt_id: str) -> None:
+        """Delete a prompt by its ID and handle order recalculation"""
+        if prompt_id not in self.prompts:
+            raise ValueError("Invalid prompt ID")
+            
+        # Store prompt info before deletion
+        prompt = self.prompts[prompt_id]
+        old_list_order = prompt.list_order
+        was_pinned = prompt.pinned
+        old_pin_order = prompt.pin_order
+        
+        # Delete the prompt
+        del self.prompts[prompt_id]
+        
+        # Handle active prompt
+        if self.active_prompt_id == prompt_id:
+            self.active_prompt_id = None
+            
+            # Find new prompt to activate
+            remaining_prompts = sorted(
+                self.prompts.values(),
+                key=lambda p: (p.pin_order if p.pinned else float('inf'), p.list_order)
+            )
+            
+            if remaining_prompts:
+                # Set first prompt as active (set_active_prompt will save)
+                self.set_active_prompt(remaining_prompts[0].id)
+                
+        # Recalculate orders
+        if was_pinned:
+            # Update pin_order for remaining pinned prompts
+            for p in self.prompts.values():
+                if p.pinned and p.pin_order is not None and p.pin_order > old_pin_order:
+                    p.pin_order -= 1
+        else:
+            # Update list_order for remaining non-pinned prompts
+            for p in self.prompts.values():
+                if not p.pinned and p.list_order > old_list_order:
+                    p.list_order -= 1
+        
+        # Save unless we just called set_active_prompt
+        if self.active_prompt_id != prompt_id:
             self.save_prompts()
-        except IndexError:
-            pass
 
     def save_prompts(self, prompts_file="system_prompts.json"):
         """Save prompts to JSON file using the new format"""
