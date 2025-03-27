@@ -181,51 +181,64 @@ class Config(BaseModel):
         
         self.save_prompts()
 
-    def pin_prompt(self, display_idx: int) -> None:
-        """Public method to toggle pin status"""
-        self._pin_prompt(display_idx)
-
-    def _pin_prompt(self, display_idx: int) -> None:
-        """Toggle pin status of a prompt"""
-        try:
-            if not (0 <= display_idx < len(self.prompts)):
-                raise ValueError("Invalid display index")
-
-            prompt_id = self.prompts.keys()[display_idx]
-            prompt = self.prompts[prompt_id]
-
-            # Toggle pinned status
-            prompt.pinned = not prompt.pinned
-
-            # Reorder the display order based on pin status
-            self._reorder_after_pin_change(prompt_id)
-            self.save_prompts()
-
-        except Exception as e:
-            raise RuntimeError(f"Failed to toggle pin status: {str(e)}")
-
-    def _reorder_after_pin_change(self, changed_prompt_id: str) -> None:
-        """Reorder prompts after a pin status change"""
-        # Remove the changed prompt from current order
-        self.prompts.pop(changed_prompt_id)
-        
-        # Find insertion point for the prompt based on its new pin order
-        changed_prompt = self.prompts[changed_prompt_id]
-        insertion_idx = 0
-        
-        if changed_prompt.pinned:  # If newly pinned
-            # Find the last pinned prompt
-            while (insertion_idx < len(self.prompts) and 
-                   self.prompts[self.prompts.keys()[insertion_idx]].pinned):
-                insertion_idx += 1
-        else:  # If unpinned
-            # Skip all pinned prompts
-            while (insertion_idx < len(self.prompts) and 
-                   self.prompts[self.prompts.keys()[insertion_idx]].pinned):
-                insertion_idx += 1
+    def toggle_pin_status(self, prompt_id: str, new_list_order_on_unpin: Optional[int] = None) -> None:
+        """Toggle the pin status of a prompt and handle order recalculation"""
+        if prompt_id not in self.prompts:
+            raise ValueError("Invalid prompt ID")
             
-        # Insert at the appropriate position
-        self.prompts.insert(insertion_idx, changed_prompt_id, changed_prompt)
+        prompt = self.prompts[prompt_id]
+        
+        if not prompt.pinned:  # Pinning the prompt
+            # Check pinned count limit
+            pinned_count = sum(1 for p in self.prompts.values() if p.pinned)
+            if pinned_count >= 6:
+                raise ValueError("Maximum 6 pinned prompts allowed.")
+                
+            # Store current list order before pinning
+            old_list_order = prompt.list_order
+            
+            # Update prompt to pinned status
+            prompt.pinned = True
+            prompt.pin_order = pinned_count
+            prompt.list_order = -1  # No longer in numbered list
+            
+            # Recalculate list_order for affected non-pinned prompts
+            for p in self.prompts.values():
+                if not p.pinned and p.list_order > old_list_order:
+                    p.list_order -= 1
+                    
+        else:  # Unpinning the prompt
+            # Store current pin order before unpinning
+            old_pin_order = prompt.pin_order
+            
+            # Update prompt to unpinned status
+            prompt.pinned = False
+            prompt.pin_order = None
+            
+            # Determine new list_order
+            target_list_order = -1
+            if new_list_order_on_unpin is not None and new_list_order_on_unpin >= 0:
+                target_list_order = new_list_order_on_unpin
+            else:
+                # Calculate position at the end
+                max_order = max((p.list_order for p in self.prompts.values() if not p.pinned), default=-1)
+                target_list_order = max_order + 1
+            
+            # Shift other non-pinned prompts if inserting at specific position
+            if new_list_order_on_unpin is not None:
+                for p in self.prompts.values():
+                    if not p.pinned and p.list_order >= target_list_order:
+                        p.list_order += 1
+            
+            # Set the unpinned prompt's order
+            prompt.list_order = target_list_order
+            
+            # Recalculate pin_order for remaining pinned prompts
+            for p in self.prompts.values():
+                if p.pinned and p.pin_order is not None and p.pin_order > old_pin_order:
+                    p.pin_order -= 1
+        
+        self.save_prompts()
 
     def move_prompt(self, display_idx: int, direction: int) -> None:
         """Public method to move prompt"""
