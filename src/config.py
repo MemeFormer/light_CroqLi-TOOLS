@@ -124,12 +124,45 @@ class Config(BaseModel):
             self._create_default_prompts()
             self.save_prompts()  # We'll implement this in the next step
 
-    def add_prompt(self, new_prompt: SystemPrompt) -> None:
-        """Add a new prompt from SystemPrompt object"""
-        if not new_prompt.title or not new_prompt.content:
-            raise ValueError("Name and prompt text cannot be empty")
+    def add_prompt(self, title: str, content: str, make_active: bool = False) -> None:
+        """Add a new prompt with the specified title and content"""
+        if not title or not content:
+            raise ValueError("Title and content cannot be empty")
             
+        # Calculate the new list_order
+        max_order = max((p.list_order for p in self.prompts.values() if not p.pinned), default=-1)
+        
+        # Create new prompt
+        new_prompt = SystemPrompt(
+            id=str(uuid.uuid4()),
+            title=title,
+            content=content,
+            is_active=False,
+            pinned=False,
+            pin_order=None,
+            list_order=max_order + 1
+        )
+        
+        # Add to prompts dictionary
         self.prompts[new_prompt.id] = new_prompt
+        
+        # Set as active if requested
+        if make_active:
+            self.set_active_prompt(new_prompt.id)
+        
+        self.save_prompts()
+
+    def set_active_prompt(self, prompt_id: Optional[str]) -> None:
+        """Set the active prompt by its ID"""
+        if prompt_id is not None and prompt_id not in self.prompts:
+            raise ValueError("Invalid prompt ID")
+            
+        self.active_prompt_id = prompt_id
+        
+        # Update is_active status for all prompts
+        for prompt in self.prompts.values():
+            prompt.is_active = (prompt.id == prompt_id)
+        
         self.save_prompts()
 
     def update_prompt(self, display_idx: int, updated_prompt: SystemPrompt) -> None:
@@ -144,25 +177,9 @@ class Config(BaseModel):
         prompt.content = updated_prompt.content
         
         if updated_prompt.is_active:
-            self._set_active_prompt(display_idx)
+            self.set_active_prompt(prompt_id)
         
         self.save_prompts()
-
-    def _set_active_prompt(self, display_idx: int):
-        try:
-            if display_idx is None:
-                self.active_prompt_id = None
-            elif 0 <= display_idx < len(self.prompts):
-                prompt_id = self.prompts.keys()[display_idx]
-                self.active_prompt_id = prompt_id
-                for pid, prompt in self.prompts.items():
-                    if pid != prompt_id:
-                        prompt.is_active = False
-            else:
-                raise ValueError("Invalid display index")
-            self.save_prompts()
-        except Exception as e:
-            raise RuntimeError(f"Failed to set active prompt: {str(e)}")
 
     def pin_prompt(self, display_idx: int) -> None:
         """Public method to toggle pin status"""
@@ -246,7 +263,7 @@ class Config(BaseModel):
         try:
             prompt_id = self.prompts.pop(self.prompts.keys()[display_idx])
             if self.active_prompt_id == prompt_id:
-                self._set_active_prompt(0)
+                self.set_active_prompt(None)
             self.save_prompts()
         except IndexError:
             pass
