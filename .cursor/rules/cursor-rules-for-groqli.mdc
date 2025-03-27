@@ -1,0 +1,10 @@
+---
+description: make-it-work
+globs: *.py
+---
+
+# Your rule content
+
+## GOALS & Priority
+
+Instead of adding more and more code, we should look closely where to apply fixes. We need to identify what is causing the problems (in the existing code) and find appropriate solutions.

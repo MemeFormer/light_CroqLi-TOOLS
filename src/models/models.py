@@ -65,7 +65,7 @@ class PromptPriority(str, Enum):
 
 # Base Pydantic model for system prompts
 class BaseSystemPrompt(BaseModel):
-    name: str
+    title: str
     is_active: bool = False
 
     class Config:
@@ -81,12 +81,14 @@ class ChatSystemPrompt(BaseSystemPrompt):
     class Config:
         from_attributes = True
 
-class MenuSystemPrompt(BaseSystemPrompt):
+class SystemPrompt(BaseSystemPrompt):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    prompt_text: str
-    priority: int = 0  # 0 for unpinned, 1 for pinned
+    title: str
+    content: str
     is_active: bool = False
-    display_index: int = 0
+    pinned: bool = False
+    pin_order: Optional[int] = None
+    list_order: int
 
     class Config:
         from_attributes = True
