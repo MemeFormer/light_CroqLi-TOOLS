@@ -30,7 +30,7 @@ class Config(BaseModel):
     def _create_default_prompts(self):
         default_prompts = [
             SystemPrompt(
-                id="General Assistant",
+                id=str(uuid.uuid4()),
                 title="General Assistant",
                 content="You are a helpful assistant that provides clear and concise answers.",
                 is_active=True,
@@ -39,7 +39,7 @@ class Config(BaseModel):
                 list_order=0
             ),
             SystemPrompt(
-                id="Code Helper",
+                id=str(uuid.uuid4()),
                 title="Code Helper",
                 content="You are a coding assistant that helps with programming questions and debugging.",
                 is_active=False,
@@ -48,7 +48,7 @@ class Config(BaseModel):
                 list_order=1
             ),
             SystemPrompt(
-                id="Technical Writer",
+                id=str(uuid.uuid4()),
                 title="Technical Writer",
                 content="You are a technical writing assistant that helps create documentation and explanations.",
                 is_active=False,
@@ -57,7 +57,7 @@ class Config(BaseModel):
                 list_order=2
             ),
             SystemPrompt(
-                id="CLI Expert",
+                id=str(uuid.uuid4()),
                 title="CLI Expert",
                 content="You are a command-line expert that helps with shell commands and automation.",
                 is_active=False,
@@ -66,7 +66,7 @@ class Config(BaseModel):
                 list_order=3
             ),
             SystemPrompt(
-                id="System Administrator",
+                id=str(uuid.uuid4()),
                 title="System Administrator",
                 content="You are a system administration expert that helps with system management tasks.",
                 is_active=False,
@@ -76,11 +76,13 @@ class Config(BaseModel):
             )
         ]
 
+        # Populate prompts dictionary
         for prompt in default_prompts:
             self.prompts[prompt.id] = prompt
         
         # Set the first prompt as active
-        self.active_prompt_id = self.prompts.keys()[0]
+        first_prompt = next(iter(self.prompts.values()))
+        self.active_prompt_id = first_prompt.id
 
     @property
     def active_prompt(self) -> Optional[SystemPrompt]:
@@ -250,10 +252,11 @@ class Config(BaseModel):
             pass
 
     def save_prompts(self, prompts_file="system_prompts.json"):
+        """Save prompts to JSON file using the new format"""
         try:
             with open(prompts_file, "w") as f:
                 json.dump({
-                    "prompts": {pid: p.dict() for pid, p in self.prompts.items()},
+                    "prompts": {pid: p.model_dump() for pid, p in self.prompts.items()},
                     "active_prompt_id": self.active_prompt_id
                 }, f, indent=4)
         except IOError as e:
