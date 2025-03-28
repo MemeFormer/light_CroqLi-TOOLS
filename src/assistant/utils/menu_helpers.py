@@ -535,3 +535,33 @@ class MenuSystem:
     def _update_display_indices(self):
          for idx, prompt_id in enumerate(self.config.display_order_U):
              self.config.prompts_U[prompt_id].display_index = idx
+
+    def _manage_system_prompts(self) -> Optional[str]:
+        """Manage system prompts with a unified interface for viewing and editing."""
+        # Ensure prompts are loaded
+        self.config.load_prompts()
+        
+        # Get all prompts
+        all_prompts = list(self.config.prompts.values())
+        
+        # Handle empty state
+        if not all_prompts:
+            self.console.print("No system prompts configured yet.", style="yellow")
+            return None
+            
+        while True:
+            # Filter and sort prompts
+            pinned_prompts = sorted(
+                [p for p in all_prompts if p.pinned],
+                key=lambda x: x.pin_order if x.pin_order is not None else float('inf')
+            )
+            
+            numbered_prompts = sorted(
+                [p for p in all_prompts if not p.pinned],
+                key=lambda x: x.list_order
+            )
+            
+            # Placeholder for display and interaction logic
+            # (Will be implemented in next steps)
+            
+            return None  # Temporary return until we implement the full logic
