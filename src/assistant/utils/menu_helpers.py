@@ -107,13 +107,13 @@ class MenuSystem:
         """Add a new system prompt."""
         questions = [
             inquirer.Text(
-                "name",
-                message="Enter the prompt name",
+                "title",
+                message="Enter the prompt title",
                 validate=lambda _, x: bool(x.strip())
             ),
-            inquirer.Text(
-                "prompt_text",
-                message="Enter the prompt text",
+            inquirer.Editor(
+                "content",
+                message="Enter the prompt content",
                 validate=lambda _, x: bool(x.strip())
             ),
             inquirer.Confirm(
@@ -123,22 +123,25 @@ class MenuSystem:
             )
         ]
 
-        answers = inquirer.prompt(questions)
-        if answers:
-            try:
-                new_prompt = MenuSystemPrompt(
-                    name=answers["name"],
-                    prompt_text=answers["prompt_text"],
-                    is_active=answers["is_active"],
-                    priority=0  # Default to unpinned
-                )
-                self.config.add_prompt(new_prompt)
-                self.console.print("New prompt added successfully", style="green")
-            except Exception as e:
-                self.console.print(f"Error adding prompt: {e}", style="red")
+        try:
+            answers = inquirer.prompt(questions)
+            if answers:
+                try:
+                    self.config.add_prompt(
+                        title=answers["title"],
+                        content=answers["content"],
+                        make_active=answers["is_active"]
+                    )
+                    self.console.print("New prompt added successfully.", style="green")
+                except ValueError as e:
+                    self.console.print(f"Error adding prompt: {e}", style="red")
+                except Exception as e:
+                    self.console.print(f"An unexpected error occurred: {e}", style="red")
+        except KeyboardInterrupt:
+            self.console.print("\nPrompt creation cancelled.", style="yellow")
+            
+        # No explicit return - allows _manage_system_prompts to continue its loop
 
-        return "system_prompts"
-    
     def _get_status_markers(self, prompt):
         """Create status indicators for a prompt"""
         active = "●" if prompt.is_active else "○"
