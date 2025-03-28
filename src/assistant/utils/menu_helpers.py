@@ -1,6 +1,8 @@
 # src/assistant/utils/menu_helpers.py
 from typing import Dict, Optional, Callable
 from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 from src.config import Config, load_config
 from src.models.models import APIKeys
 from src.services.groq_api import GroqService
@@ -538,30 +540,59 @@ class MenuSystem:
 
     def _manage_system_prompts(self) -> Optional[str]:
         """Manage system prompts with a unified interface for viewing and editing."""
-        # Ensure prompts are loaded
-        self.config.load_prompts()
-        
-        # Get all prompts
-        all_prompts = list(self.config.prompts.values())
-        
-        # Handle empty state
-        if not all_prompts:
-            self.console.print("No system prompts configured yet.", style="yellow")
-            return None
-            
-        while True:
+        # Define pinned prompt hotkeys
+        pinned_keys = ['D', 'F', 'G', 'H', 'J', 'K']
+
+        while True:  # Loop to allow re-display after actions
+            # Refresh data inside the loop
+            self.config.load_prompts()
+            all_prompts = list(self.config.prompts.values())
+
+            if not all_prompts:
+                self.console.print("No system prompts configured yet. Add one!", style="yellow")
+                return None  # Return to main menu
+
             # Filter and sort prompts
+            # Ensure correct sorting even if pin_order is None
             pinned_prompts = sorted(
                 [p for p in all_prompts if p.pinned],
-                key=lambda x: x.pin_order if x.pin_order is not None else float('inf')
+                key=lambda x: x.pin_order if x.pin_order is not None else -1
             )
-            
             numbered_prompts = sorted(
                 [p for p in all_prompts if not p.pinned],
                 key=lambda x: x.list_order
             )
-            
-            # Placeholder for display and interaction logic
-            # (Will be implemented in next steps)
-            
-            return None  # Temporary return until we implement the full logic
+
+            # Display pinned prompts in a panel
+            pinned_content_lines = []
+            if pinned_prompts:
+                for i, prompt in enumerate(pinned_prompts):
+                    if i < len(pinned_keys):  # Ensure we don't exceed available hotkeys
+                        markers = self._get_status_markers(prompt)
+                        line = f"{markers} {pinned_keys[i]}: {prompt.title}"
+                        pinned_content_lines.append(line)
+            else:
+                pinned_content_lines.append(
+                    Text("(No prompts pinned. Use action menu to pin.)", style="dim italic")
+                )
+
+            # Create and display pinned prompts panel
+            pinned_panel_content = "\n".join(str(line) for line in pinned_content_lines)
+            pinned_panel = Panel(
+                pinned_panel_content,
+                title="📌 Pinned Prompts",
+                border_style="blue",
+                expand=False
+            )
+            self.console.print(pinned_panel)
+
+            # Display numbered prompts
+            if numbered_prompts:
+                self.console.print("\n--- System Prompts ---", style="blue bold")
+                for i, prompt in enumerate(numbered_prompts, 1):
+                    markers = self._get_status_markers(prompt)
+                    self.console.print(f"{markers} {i}: {prompt.title}")
+
+            # TODO: Add interaction logic here (Step 2d)
+
+        return None  # Default return if loop exits cleanly
