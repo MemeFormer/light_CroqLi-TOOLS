@@ -593,6 +593,61 @@ class MenuSystem:
                     markers = self._get_status_markers(prompt)
                     self.console.print(f"{markers} {i}: {prompt.title}")
 
-            # TODO: Add interaction logic here (Step 2d)
+            # Prepare choices for inquirer
+            choices = []
+
+            # Add pinned prompt choices
+            for i, prompt in enumerate(pinned_prompts):
+                if i < len(pinned_keys):
+                    markers = self._get_status_markers(prompt)
+                    choice_str = f"{markers} {pinned_keys[i]}: {prompt.title}"
+                    choices.append((choice_str, prompt.id))
+
+            # Add numbered prompt choices
+            for i, prompt in enumerate(numbered_prompts):
+                markers = self._get_status_markers(prompt)
+                choice_str = f"{markers} {i + 1}: {prompt.title}"
+                choices.append((choice_str, prompt.id))
+
+            # Add special actions
+            choices.append(("- Add New Prompt -", "add_new"))
+            choices.append(("(Back to Main Menu)", "back"))
+
+            # Create and execute inquirer prompt
+            questions = [
+                inquirer.List(
+                    'selection',
+                    message="Select prompt to manage (use arrows, DFG keys, or numbers), or choose an action",
+                    choices=choices,
+                    carousel=True
+                )
+            ]
+
+            try:
+                answers = inquirer.prompt(questions)
+                if not answers:
+                    return None  # Handle Ctrl+C or other interruption
+
+                selected_value = answers['selection']
+
+                if selected_value == "back":
+                    return None
+                elif selected_value == "add_new":
+                    self._add_new_prompt()
+                    continue
+                else:
+                    # Find the selected prompt
+                    selected_prompt = self.config.prompts.get(selected_value)
+                    if selected_prompt:
+                        action_result = self._show_prompt_actions_menu(selected_prompt)
+                        if action_result == "start_chat":
+                            return "start_chat"
+                        continue
+                    else:
+                        self.console.print("Error: Selected prompt not found.", style="red")
+                        continue
+
+            except KeyboardInterrupt:
+                return None  # Handle Ctrl+C gracefully
 
         return None  # Default return if loop exits cleanly
