@@ -26,12 +26,6 @@ class MenuSystem:
     def _create_menu_structure(self) -> Dict[str, Dict[str, MenuItem]]:
         # Create submenus first
         settings_menu = self._create_settings_menu()
-        prompts_menu = {
-        "1": MenuItem(title="System Prompts", action=self._display_prompts_list, key_binding="1", enabled=True),
-        "2": MenuItem(title="Back", action=lambda: "back", key_binding="2", enabled=True)
-    }
-        
-    
         
         main_menu = {
             "1": MenuItem(
@@ -60,7 +54,7 @@ class MenuSystem:
             ),
             "5": MenuItem(
                 title="System Prompts",
-                submenu=prompts_menu,
+                action=self._manage_system_prompts,
                 key_binding="5",
                 enabled=True
             ),
@@ -74,8 +68,7 @@ class MenuSystem:
     
         return {
             "main": main_menu,
-            "settings": settings_menu,
-            "system_prompts": prompts_menu
+            "settings": settings_menu
         }
 
     def _create_settings_menu(self) -> Dict[str, MenuItem]:
@@ -85,20 +78,6 @@ class MenuSystem:
             "3": MenuItem(title="Back", action=lambda: "back", key_binding="3"), # Lambda for simple return
         }
     
-    def _create_prompts_menu(self) -> Dict[str, MenuItem]:
-        """Shows the list of available system prompts with their active status and pin state"""
-        
-        prompts_menu = {
-            "1": MenuItem(title="Add New Prompt", action=self._add_new_prompt, key_binding="1"),
-            "2": MenuItem(title="Switch Active Prompt", action=self._switch_active_prompt, key_binding="2"),
-            "3": MenuItem(title="Pin/Unpin Prompt", action=self._pin_prompt, key_binding="3"),
-            "4": MenuItem(title="Move Prompt", action=self._move_prompt, key_binding="4"),
-            "5": MenuItem(title="Delete Prompt", action=self._delete_prompt, key_binding="5"),
-            "6": MenuItem(title="Back", action=lambda: "back", key_binding="6")
-        }
-        return prompts_menu
-    
-
     def _display_prompts_list(self):
         self.config.load_systemprompts_U()
 
@@ -158,22 +137,16 @@ class MenuSystem:
 
         return "system_prompts"
     
-    def get_status_markers(prompt):
+    def _get_status_markers(self, prompt):
         """Create status indicators for a prompt"""
-        active = "●" if prompt.is_active else "○"  # Filled/empty circle for active status
-        pinned = "📌" if prompt.priority == 1 else "  "  # Pin emoji for pinned, spaces for unpinned
-        return f"{active} {pinned}"    
-        
+        active = "●" if prompt.is_active else "○"
+        pinned = "📌" if prompt.pinned else "  "
+        return f"{active} {pinned}"
+
     def _display_prompts(self):
         for i, prompt in enumerate(self.config.prompts):
             markers = self._get_status_markers(prompt)
             self.console.print(f"{i+1}. {markers} {prompt.name}")
-
-    def _get_status_markers(self, prompt):
-            active = "●" if prompt.is_active else "○"
-            pinned = "📌" if prompt.priority == 1 else "  "
-            return f"{active} {pinned}"
-
 
     def _show_prompt_actions_menu(self, selected_idx: int) -> str:
         """Shows the actions menu for a selected prompt."""
