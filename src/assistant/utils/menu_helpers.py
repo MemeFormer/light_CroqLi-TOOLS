@@ -97,7 +97,7 @@ class MenuSystem:
             try:
                 prompt_index = int(choice) - 1
                 if 0 <= prompt_index < len(self.config.prompts):
-                    return self._show_prompt_actions_menu(prompt_index)
+                    return self._show_prompt_actions_menu(self.config.prompts[prompt_index])
                 else:
                     self.console.print("Invalid prompt number.", style="red")
             except ValueError:
@@ -150,49 +150,170 @@ class MenuSystem:
             markers = self._get_status_markers(prompt)
             self.console.print(f"{i+1}. {markers} {prompt.name}")
 
-    def _show_prompt_actions_menu(self, selected_idx: int) -> str:
+    def _show_prompt_actions_menu(self, prompt: SystemPrompt) -> Optional[str]:
         """Shows the actions menu for a selected prompt."""
-        if not self.config.prompt_exists(selected_idx):
-            self.console.print("Invalid prompt index.", style="red")
-            return "system_prompts"
-
         while True:
-            prompt = self.config.prompts[selected_idx]
-            actions = {
-                "1": ("Activate", self.config.set_active_prompt),
-                "2": ("Pin/Unpin", self.config.pin_prompt),
-                "3": ("Move Up", lambda: self.config.move_prompt(selected_idx, -1)),
-                "4": ("Move Down", lambda: self.config.move_prompt(selected_idx, 1)),
-                "5": ("Delete", self.config.delete_prompt),
-                "6": ("Back", lambda: None), # Return to prompts menu
-            }
+            # Build dynamic action list based on prompt state
+            actions_available = []
 
-            self.console.print(f"\nPrompt: {prompt.name}", style="bold")
-            for key, (action_name, _) in actions.items():
-                self.console.print(f"{key}. {action_name}")
-
-            choice = self.console.input("Choose action: ")
-
-            if choice == "6":
-                break
-
-            action_name, action_func = actions.get(choice, (None, None))
-            if action_func:
-                try:
-                    if action_name in ("Move Up", "Move Down", "Delete"):
-                        action_func()  # These actions don't take an index argument
-                        self._update_display_indices()
-                    else:
-                        action_func(selected_idx)
-                    self.config.save_systemprompts_U()  # Save changes
-                    self.console.print(f"Action '{action_name}' completed successfully.", style="green")
-
-                except Exception as e:
-                    self.console.print(f"Error: {e}", style="red")
+            # Add activation actions
+            if not prompt.is_active:
+                actions_available.append(("Set as Active", "set_active"))
+                actions_available.append(("Activate and Chat", "activate_chat"))
             else:
-                self.console.print("Invalid choice.", style="red")
+                actions_available.append(("[Currently Active]", "noop"))
 
-        return "system_prompts"
+            # Add pin/unpin actions
+            if prompt.pinned:
+                actions_available.append(("Unpin Prompt", "unpin"))
+            else:
+                pinned_count = sum(1 for p in self.config.prompts.values() if p.pinned)
+                if pinned_count < 6:
+                    actions_available.append(("Pin Prompt", "pin"))
+                else:
+                    actions_available.append(("[Max Pinned Reached]", "noop"))
+
+            # Add reordering actions (only for non-pinned prompts)
+            if not prompt.pinned:
+                numbered_prompts = sorted(
+                    [p for p in self.config.prompts.values() if not p.pinned],
+                    key=lambda x: x.list_order
+                )
+                current_index = next((i for i, p in enumerate(numbered_prompts) if p.id == prompt.id), -1)
+
+                if current_index > 0:
+                    actions_available.append(("Move Up", "move_up"))
+                    actions_available.append(("Move to Top", "move_top"))
+                if current_index < len(numbered_prompts) - 1:
+                    actions_available.append(("Move Down", "move_down"))
+                    actions_available.append(("Move to Bottom", "move_bottom"))
+                if len(numbered_prompts) > 1:
+                    actions_available.append(("Move to Position...", "move_pos"))
+
+            # Add edit actions
+            actions_available.append(("Edit Title", "edit_title"))
+            actions_available.append(("Edit Content", "edit_content"))
+
+            # Add delete action
+            actions_available.append(("Delete Prompt", "delete"))
+
+            # Add back action
+            actions_available.append(("(Back to Prompt List)", "back"))
+
+            # Present actions with inquirer
+            questions = [
+                inquirer.List(
+                    'action',
+                    message=f"Actions for '{prompt.title}'",
+                    choices=actions_available,
+                    carousel=True
+                )
+            ]
+
+            try:
+                answers = inquirer.prompt(questions)
+                if not answers:
+                    return None
+
+                chosen_action_key = answers['action']
+
+                if chosen_action_key == "noop":
+                    continue
+                elif chosen_action_key == "back":
+                    return None
+                elif chosen_action_key == "set_active":
+                    self.config.set_active_prompt(prompt.id)
+                    self.console.print("Prompt set as active.", style="green")
+                elif chosen_action_key == "activate_chat":
+                    self.config.set_active_prompt(prompt.id)
+                    return "start_chat"
+                elif chosen_action_key == "pin":
+                    self.config.toggle_pin_status(prompt.id)
+                    self.console.print("Prompt pinned.", style="green")
+                    return None  # Return to list to see new order
+                elif chosen_action_key == "unpin":
+                    # Handle guided placement
+                    position_q = [
+                        inquirer.Text(
+                            'position',
+                            message="Enter desired position in list (leave empty for end)",
+                            validate=lambda _, x: not x or x.isdigit()
+                        )
+                    ]
+                    pos_answer = inquirer.prompt(position_q)
+                    if pos_answer:
+                        target_order = int(pos_answer['position']) - 1 if pos_answer['position'] else None
+                        self.config.toggle_pin_status(prompt.id, new_list_order_on_unpin=target_order)
+                        self.console.print("Prompt unpinned.", style="green")
+                    return None  # Return to list to see new order
+                elif chosen_action_key == "move_up":
+                    self.config.move_prompt_list_order(prompt.id, -1)
+                elif chosen_action_key == "move_down":
+                    self.config.move_prompt_list_order(prompt.id, 1)
+                elif chosen_action_key == "move_top":
+                    self.config.move_prompt_list_top(prompt.id)
+                elif chosen_action_key == "move_bottom":
+                    self.config.move_prompt_list_bottom(prompt.id)
+                elif chosen_action_key == "move_pos":
+                    position_q = [
+                        inquirer.Text(
+                            'position',
+                            message="Enter target position number",
+                            validate=lambda _, x: x.isdigit() and int(x) > 0
+                        )
+                    ]
+                    pos_answer = inquirer.prompt(position_q)
+                    if pos_answer:
+                        target_position = int(pos_answer['position']) - 1  # Convert to 0-based index
+                        self.config.move_prompt_list_position(prompt.id, target_position)
+                elif chosen_action_key == "edit_title":
+                    title_q = [
+                        inquirer.Text(
+                            'title',
+                            message="Enter new title",
+                            default=prompt.title
+                        )
+                    ]
+                    title_answer = inquirer.prompt(title_q)
+                    if title_answer and title_answer['title']:
+                        self.config.edit_title(prompt.id, title_answer['title'])
+                        self.console.print("Title updated.", style="green")
+                elif chosen_action_key == "edit_content":
+                    content_q = [
+                        inquirer.Text(
+                            'content',
+                            message="Enter new content (use \\n for line breaks)",
+                            default=prompt.content
+                        )
+                    ]
+                    content_answer = inquirer.prompt(content_q)
+                    if content_answer and content_answer['content']:
+                        self.config.edit_content(prompt.id, content_answer['content'])
+                        self.console.print("Content updated.", style="green")
+                elif chosen_action_key == "delete":
+                    if prompt.is_active:
+                        self.console.print("Warning: This is the active prompt!", style="yellow")
+                    
+                    confirm_q = [
+                        inquirer.Confirm(
+                            'confirm',
+                            message="Are you sure you want to delete this prompt?",
+                            default=False
+                        )
+                    ]
+                    confirm_answer = inquirer.prompt(confirm_q)
+                    if confirm_answer and confirm_answer['confirm']:
+                        self.config.delete_prompt(prompt.id)
+                        self.console.print("Prompt deleted.", style="green")
+                        return None  # Return to list as prompt no longer exists
+
+            except ValueError as e:
+                self.console.print(f"Error: {e}", style="red")
+                continue
+            except KeyboardInterrupt:
+                return None
+
+        return None
 
     def _move_prompt(self):
         """Move a system prompt up or down."""
