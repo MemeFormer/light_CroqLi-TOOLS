@@ -165,20 +165,102 @@ class Config(BaseModel):
         
         self.save_prompts()
 
-    def update_prompt(self, display_idx: int, updated_prompt: SystemPrompt) -> None:
-        """Update an existing prompt"""
-        if not (0 <= display_idx < len(self.prompts)):
-            raise ValueError("Invalid display index")
+    def move_prompt_list_order(self, prompt_id: str, direction: int) -> None:
+        """Move a non-pinned prompt up or down by one position"""
+        if prompt_id not in self.prompts:
+            raise ValueError("Invalid prompt ID")
             
-        prompt_id = self.prompts.keys()[display_idx]
         prompt = self.prompts[prompt_id]
+        if prompt.pinned:
+            raise ValueError("Cannot move pinned prompts using list_order")
+            
+        current_order = prompt.list_order
+        target_order = current_order + direction
         
-        prompt.title = updated_prompt.title
-        prompt.content = updated_prompt.content
+        # Find prompt at target order
+        target_prompt = next(
+            (p for p in self.prompts.values() 
+             if not p.pinned and p.list_order == target_order),
+            None
+        )
         
-        if updated_prompt.is_active:
-            self.set_active_prompt(prompt_id)
+        if target_prompt:
+            # Swap list_order values
+            prompt.list_order = target_order
+            target_prompt.list_order = current_order
+            self.save_prompts()
+
+    def move_prompt_list_position(self, prompt_id: str, new_list_order: int) -> None:
+        """Move a non-pinned prompt to a specific position"""
+        if prompt_id not in self.prompts:
+            raise ValueError("Invalid prompt ID")
+            
+        prompt = self.prompts[prompt_id]
+        if prompt.pinned:
+            raise ValueError("Cannot move pinned prompts using list_order")
+            
+        # Calculate maximum valid position
+        max_valid_position = max(
+            (p.list_order for p in self.prompts.values() 
+             if not p.pinned and p.id != prompt_id),
+            default=-1
+        ) + 1
         
+        # Validate new position
+        if not (0 <= new_list_order <= max_valid_position):
+            raise ValueError(f"Invalid list order. Must be between 0 and {max_valid_position}")
+            
+        current_order = prompt.list_order
+        if new_list_order == current_order:
+            return
+            
+        # Shift other prompts
+        if new_list_order < current_order:  # Moving up
+            for p in self.prompts.values():
+                if not p.pinned and new_list_order <= p.list_order < current_order:
+                    p.list_order += 1
+        else:  # Moving down
+            for p in self.prompts.values():
+                if not p.pinned and current_order < p.list_order <= new_list_order:
+                    p.list_order -= 1
+                    
+        # Set new position
+        prompt.list_order = new_list_order
+        self.save_prompts()
+
+    def move_prompt_list_top(self, prompt_id: str) -> None:
+        """Move a non-pinned prompt to the top of the list"""
+        self.move_prompt_list_position(prompt_id, 0)
+
+    def move_prompt_list_bottom(self, prompt_id: str) -> None:
+        """Move a non-pinned prompt to the bottom of the list"""
+        max_order = max(
+            (p.list_order for p in self.prompts.values() 
+             if not p.pinned and p.id != prompt_id),
+            default=-1
+        )
+        self.move_prompt_list_position(prompt_id, max_order + 1)
+
+    def edit_title(self, prompt_id: str, new_title: str) -> None:
+        """Edit a prompt's title"""
+        if prompt_id not in self.prompts:
+            raise ValueError("Invalid prompt ID")
+            
+        if not new_title or not new_title.strip():
+            raise ValueError("Title cannot be empty")
+            
+        self.prompts[prompt_id].title = new_title.strip()
+        self.save_prompts()
+
+    def edit_content(self, prompt_id: str, new_content: str) -> None:
+        """Edit a prompt's content"""
+        if prompt_id not in self.prompts:
+            raise ValueError("Invalid prompt ID")
+            
+        if new_content is None:
+            raise ValueError("Content cannot be None")
+            
+        self.prompts[prompt_id].content = new_content
         self.save_prompts()
 
     def toggle_pin_status(self, prompt_id: str, new_list_order_on_unpin: Optional[int] = None) -> None:
@@ -240,38 +322,6 @@ class Config(BaseModel):
         
         self.save_prompts()
 
-    def move_prompt(self, display_idx: int, direction: int) -> None:
-        """Public method to move prompt"""
-        self._move_prompt(display_idx, direction)
-
-    def _move_prompt(self, display_idx: int, direction: int) -> None:
-        """Move a prompt up or down within its priority group"""
-        try:
-            if not (0 <= display_idx < len(self.prompts)):
-                raise ValueError("Invalid display index")
-            
-            current_id = self.prompts.keys()[display_idx]
-            current_prompt = self.prompts[current_id]
-            
-            # Calculate new index ensuring we stay within the same priority group
-            new_idx = display_idx + direction
-            while (0 <= new_idx < len(self.prompts)):
-                target_id = self.prompts.keys()[new_idx]
-                target_prompt = self.prompts[target_id]
-                
-                # Only swap if both prompts have the same pin order
-                if target_prompt.pin_order == current_prompt.pin_order:
-                    self.prompts.pop(current_id)
-                    self.prompts.insert(new_idx, current_id, current_prompt)
-                    break
-                    
-                new_idx += direction
-                
-            self.save_prompts()
-            
-        except Exception as e:
-            raise RuntimeError(f"Failed to move prompt: {str(e)}")
-
     def delete_prompt(self, prompt_id: str) -> None:
         """Delete a prompt by its ID and handle order recalculation"""
         if prompt_id not in self.prompts:
@@ -327,32 +377,6 @@ class Config(BaseModel):
         except IOError as e:
             raise RuntimeError(f"Failed to save system prompts: {str(e)}")
 
-    def rename_prompt(self, display_idx: int, new_name: str) -> None:
-        """Rename a prompt"""
-        if not (0 <= display_idx < len(self.prompts)):
-            raise ValueError("Invalid display index")
-        
-        prompt_id = self.prompts.keys()[display_idx]
-        self.prompts[prompt_id].title = new_name
-        self.save_prompts()
-
-    def edit_prompt_text(self, display_idx: int, new_text: str) -> None:
-        """Edit prompt text"""
-        if not (0 <= display_idx < len(self.prompts)):
-            raise ValueError("Invalid display index")
-        
-        prompt_id = self.prompts.keys()[display_idx]
-        self.prompts[prompt_id].content = new_text
-        self.save_prompts()
-
-    def get_prompt(self, display_idx: int) -> Optional[SystemPrompt]:
-        """Get prompt by display index"""
-        if not (0 <= display_idx < len(self.prompts)):
-            return None
-        
-        prompt_id = self.prompts.keys()[display_idx]
-        return self.prompts.get(prompt_id)
-
     def validate_configuration(self) -> bool:
         try:
             if not all(pid in self.prompts for pid in self.prompts.keys()):
@@ -364,9 +388,6 @@ class Config(BaseModel):
             return True
         except Exception:
             return False
-
-    def prompt_exists(self, display_idx: int) -> bool:
-        return 0 <= display_idx < len(self.prompts)
 
 def load_config():
     print("Loading config...")
