@@ -10,8 +10,8 @@ from src.tools.tools import Tools
 from src.assistant.chat import chat_mode
 from src.assistant.search import search_mode
 from src.assistant.cli_assistant import cli_assistant_mode
-from .menu_models import MenuItem, MenuState, MenuSystemPrompt, ModelSettings
-from src.models.models import MenuSystemPromptModel, MenuSystemPrompt, APIKeys
+from .menu_models import MenuItem, MenuState, ModelSettings
+from src.models.models import SystemPrompt, APIKeys
 import inquirer
 import json
 
@@ -81,7 +81,7 @@ class MenuSystem:
         }
     
     def _display_prompts_list(self):
-        self.config.load_systemprompts_U()
+        self.config.load_prompts()
 
         if not self.config.prompts:
             self.console.print("No prompts available.", style="yellow")
@@ -96,8 +96,12 @@ class MenuSystem:
 
             try:
                 prompt_index = int(choice) - 1
-                if 0 <= prompt_index < len(self.config.prompts):
-                    return self._show_prompt_actions_menu(self.config.prompts[prompt_index])
+                prompts_list = sorted(
+                    self.config.prompts.values(),
+                    key=lambda p: (p.pin_order if p.pinned else float('inf'), p.list_order)
+                )
+                if 0 <= prompt_index < len(prompts_list):
+                    return self._show_prompt_actions_menu(prompts_list[prompt_index])
                 else:
                     self.console.print("Invalid prompt number.", style="red")
             except ValueError:
@@ -149,9 +153,26 @@ class MenuSystem:
         return f"{active} {pinned}"
 
     def _display_prompts(self):
-        for i, prompt in enumerate(self.config.prompts):
+        # Sort prompts by pin_order and list_order
+        all_prompts = list(self.config.prompts.values())
+        pinned_prompts = sorted(
+            [p for p in all_prompts if p.pinned],
+            key=lambda x: x.pin_order if x.pin_order is not None else float('inf')
+        )
+        numbered_prompts = sorted(
+            [p for p in all_prompts if not p.pinned],
+            key=lambda x: x.list_order
+        )
+
+        # Display pinned prompts first
+        for prompt in pinned_prompts:
             markers = self._get_status_markers(prompt)
-            self.console.print(f"{i+1}. {markers} {prompt.name}")
+            self.console.print(f"📌 {markers} {prompt.title}")
+
+        # Display numbered prompts
+        for i, prompt in enumerate(numbered_prompts, 1):
+            markers = self._get_status_markers(prompt)
+            self.console.print(f"{i}. {markers} {prompt.title}")
 
     def _show_prompt_actions_menu(self, prompt: SystemPrompt) -> Optional[str]:
         """Shows the actions menu for a selected prompt."""
@@ -321,12 +342,15 @@ class MenuSystem:
     def _move_prompt(self):
         """Move a system prompt up or down."""
         try:
-            prompts = self.config.prompts
+            prompts = sorted(
+                [p for p in self.config.prompts.values() if not p.pinned],
+                key=lambda x: x.list_order
+            )
             if not prompts:
-                self.console.print("No prompts available", style="yellow")
+                self.console.print("No movable prompts available", style="yellow")
                 return "system_prompts"
 
-            choices = [f"{idx}. {prompt.name}" for idx, prompt in enumerate(prompts)]
+            choices = [f"{idx + 1}. {prompt.title}" for idx, prompt in enumerate(prompts)]
             questions = [
                 inquirer.List(
                     "prompt_index",
@@ -342,10 +366,10 @@ class MenuSystem:
 
             answer = inquirer.prompt(questions)
             if answer:
-                idx = int(answer["prompt_index"].split(".")[0])
+                idx = int(answer["prompt_index"].split(".")[0]) - 1
+                prompt = prompts[idx]
                 direction = -1 if answer["direction"] == "Up" else 1
-                self.config.move_prompt(idx, direction)
-                self._update_display_indices()
+                self.config.move_prompt_list_order(prompt.id, direction)
                 self.console.print("Prompt moved successfully", style="green")
 
             return "system_prompts"
@@ -356,12 +380,18 @@ class MenuSystem:
     def _delete_prompt(self):
         """Delete a system prompt."""
         try:
-            prompts = self.config.prompts
-            if not prompts:
+            all_prompts = list(self.config.prompts.values())
+            if not all_prompts:
                 self.console.print("No prompts available", style="yellow")
                 return "system_prompts"
 
-            choices = [f"{idx}. {prompt.name}" for idx, prompt in enumerate(prompts)]
+            # Sort prompts by pin status and order
+            prompts = sorted(
+                all_prompts,
+                key=lambda p: (p.pin_order if p.pinned else float('inf'), p.list_order)
+            )
+
+            choices = [f"{idx + 1}. {prompt.title}" for idx, prompt in enumerate(prompts)]
             questions = [
                 inquirer.List(
                     "prompt_index",
@@ -377,9 +407,83 @@ class MenuSystem:
 
             answer = inquirer.prompt(questions)
             if answer and answer["confirm"]:
-                idx = int(answer["prompt_index"].split(".")[0])
-                self.config.delete_prompt(idx)
+                idx = int(answer["prompt_index"].split(".")[0]) - 1
+                prompt = prompts[idx]
+                self.config.delete_prompt(prompt.id)
                 self.console.print("Prompt deleted successfully", style="green")
+
+            return "system_prompts"
+        except Exception as e:
+            self.console.print(f"Error: {e}", style="red")
+            return "system_prompts"
+
+    def _pin_prompt(self):
+        """Pin/Unpin a system prompt."""
+        try:
+            all_prompts = list(self.config.prompts.values())
+            if not all_prompts:
+                self.console.print("No prompts available", style="yellow")
+                return "system_prompts"
+
+            # Sort prompts by pin status and order
+            prompts = sorted(
+                all_prompts,
+                key=lambda p: (p.pin_order if p.pinned else float('inf'), p.list_order)
+            )
+
+            choices = [f"{idx + 1}. {prompt.title} {'(Pinned)' if prompt.pinned else ''}" 
+                      for idx, prompt in enumerate(prompts)]
+            questions = [
+                inquirer.List(
+                    "prompt_index",
+                    message="Select prompt to pin/unpin:",
+                    choices=choices
+                )
+            ]
+
+            answer = inquirer.prompt(questions)
+            if answer:
+                idx = int(answer["prompt_index"].split(".")[0]) - 1
+                prompt = prompts[idx]
+                self.config.toggle_pin_status(prompt.id)
+                action = "unpinned" if prompt.pinned else "pinned"
+                self.console.print(f"Prompt {action}", style="green")
+
+            return "system_prompts"
+        except Exception as e:
+            self.console.print(f"Error: {e}", style="red")
+            return "system_prompts"
+
+    def _switch_active_prompt(self):
+        """Switch the active system prompt."""
+        try:
+            all_prompts = list(self.config.prompts.values())
+            if not all_prompts:
+                self.console.print("No prompts available", style="yellow")
+                return "system_prompts"
+
+            # Sort prompts by pin status and order
+            prompts = sorted(
+                all_prompts,
+                key=lambda p: (p.pin_order if p.pinned else float('inf'), p.list_order)
+            )
+
+            choices = [f"{idx + 1}. {prompt.title} {'(Active)' if prompt.is_active else ''}" 
+                      for idx, prompt in enumerate(prompts)]
+            questions = [
+                inquirer.List(
+                    "prompt_index",
+                    message="Select prompt to activate:",
+                    choices=choices
+                )
+            ]
+
+            answer = inquirer.prompt(questions)
+            if answer:
+                idx = int(answer["prompt_index"].split(".")[0]) - 1
+                prompt = prompts[idx]
+                self.config.set_active_prompt(prompt.id)
+                self.console.print("Active prompt updated", style="green")
 
             return "system_prompts"
         except Exception as e:
@@ -599,68 +703,6 @@ class MenuSystem:
                 self.console.print(f"An error occurred: {e}", style="red")
 
         return "settings"
-
-    def _pin_prompt(self):
-        """Pin/Unpin a system prompt."""
-        try:
-            prompts = self.config.prompts
-            if not prompts:
-                self.console.print("No prompts available", style="yellow")
-                return "system_prompts"
-                
-            choices = [f"{idx}. {prompt.name}" for idx, prompt in enumerate(prompts)]
-            questions = [
-                inquirer.List(
-                    "prompt_index",
-                    message="Select prompt to pin/unpin:",
-                    choices=choices
-                )
-            ]
-            
-            answer = inquirer.prompt(questions)
-            if answer:
-                idx = int(answer["prompt_index"].split(".")[0])
-                self.config.pin_prompt(idx)
-                self.console.print("Prompt pin status toggled", style="green")
-                
-            return "system_prompts"
-        except Exception as e:
-            self.console.print(f"Error: {e}", style="red")
-            return "system_prompts"
-
-    def _switch_active_prompt(self):
-        """Switch the active system prompt."""
-        try:
-            prompts = self.config.prompts
-            if not prompts:
-                self.console.print("No prompts available", style="yellow")
-                return "system_prompts"
-                
-            choices = [f"{idx}. {prompt.name}" for idx, prompt in enumerate(prompts)]
-            questions = [
-                inquirer.List(
-                    "prompt_index",
-                    message="Select prompt to activate:",
-                    choices=choices
-                )
-            ]
-            
-            answer = inquirer.prompt(questions)
-            if answer:
-                idx = int(answer["prompt_index"].split(".")[0])
-                self.config.set_active_prompt(idx)
-                self.console.print("Active prompt updated", style="green")
-                
-            return "system_prompts"
-        except Exception as e:
-            self.console.print(f"Error: {e}", style="red")
-            return "system_prompts"
-
-    
-   
-    def _update_display_indices(self):
-         for idx, prompt_id in enumerate(self.config.display_order_U):
-             self.config.prompts_U[prompt_id].display_index = idx
 
     def _manage_system_prompts(self) -> Optional[str]:
         """Manage system prompts with a unified interface for viewing and editing."""

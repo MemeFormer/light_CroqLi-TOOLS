@@ -60,7 +60,7 @@ def main():
         sys.stdout.flush()
         
         config = load_config()
-        config.load_systemprompts_U()
+        config.load_prompts()
         
         logger.info("Configuration and system prompts loaded")
         sys.stdout.write("Configuration and system prompts loaded\n")

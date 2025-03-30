@@ -7,7 +7,7 @@ from typing import List
 from src.config import Config
 
 def get_groq_response(groq_service: GroqService, input_text: str, history: List[ChatMessage], config: Config) -> ToolCall:
-    config.load_systemprompts_U() 
+    config.load_prompts()
     messages = []
     if config.active_prompt:  # Use config.active_prompt (assuming it exists)
         messages.append(ChatMessage(role="system", content=config.active_prompt.content)) # Correct attribute

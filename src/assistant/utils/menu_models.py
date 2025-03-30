@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel
 from typing import Optional, Dict, Callable, List, Union
-from src.models.models import MenuSystemPrompt, ModelSettings  # Import the consolidated SystemPrompt model
+from src.models.models import SystemPrompt, ModelSettings  # Import the consolidated SystemPrompt model
 
 class MenuItem(BaseModel):
     title: str
