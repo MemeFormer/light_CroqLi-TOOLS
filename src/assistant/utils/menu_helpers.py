@@ -874,7 +874,7 @@ class MenuSystem:
         return "settings"
 
     def _manage_system_prompts(self) -> Optional[str]:
-        """Manage system prompts with a unified interface for viewing and editing."""
+        """Manage system prompts using a single interactive inquirer list."""
         # Define pinned prompt hotkeys
         pinned_keys = ['D', 'F', 'G', 'H', 'J', 'K']
 
@@ -885,10 +885,10 @@ class MenuSystem:
 
             if not all_prompts:
                 self.console.print("No system prompts configured yet. Add one!", style="yellow")
-                return None  # Return to main menu
-
+                # Still show Add/Back options even if list is empty
+                # continue # Old behavior: would return immediately
+            
             # Filter and sort prompts
-            # Ensure correct sorting even if pin_order is None
             pinned_prompts = sorted(
                 [p for p in all_prompts if p.pinned],
                 key=lambda x: x.pin_order if x.pin_order is not None else -1
@@ -898,51 +898,21 @@ class MenuSystem:
                 key=lambda x: x.list_order
             )
 
-            # Display pinned prompts in a panel
-            pinned_content_lines = []
-            if pinned_prompts:
-                for i, prompt in enumerate(pinned_prompts):
-                    if i < len(pinned_keys):  # Ensure we don't exceed available hotkeys
-                        markers = self._get_status_markers(prompt)
-                        line = f"{markers} {pinned_keys[i]}: {prompt.title}"
-                        pinned_content_lines.append(line)
-            else:
-                pinned_content_lines.append(
-                    Text("(No prompts pinned. Use action menu to pin.)", style="dim italic")
-                )
-
-            # Create and display pinned prompts panel
-            pinned_panel_content = "\n".join(str(line) for line in pinned_content_lines)
-            pinned_panel = Panel(
-                pinned_panel_content,
-                title="📌 Pinned Prompts",
-                border_style="blue",
-                expand=False
-            )
-            self.console.print(pinned_panel)
-
-            # Display numbered prompts
-            if numbered_prompts:
-                self.console.print("\n--- System Prompts ---", style="blue bold")
-                for i, prompt in enumerate(numbered_prompts, 1):
-                    markers = self._get_status_markers(prompt)
-                    self.console.print(f"{markers} {i}: {prompt.title}")
-
             # Prepare choices for inquirer
             choices = []
 
             # Add pinned prompt choices
-            for i, prompt in enumerate(pinned_prompts):
+            for i, p in enumerate(pinned_prompts):
                 if i < len(pinned_keys):
-                    markers = self._get_status_markers(prompt)
-                    choice_str = f"{markers} {pinned_keys[i]}: {prompt.title}"
-                    choices.append((choice_str, prompt.id))
+                    markers = self._get_status_markers(p)
+                    choice_str = f"{markers} {pinned_keys[i]}: {p.title}" # Format for key jump
+                    choices.append((choice_str, p.id))
 
             # Add numbered prompt choices
-            for i, prompt in enumerate(numbered_prompts):
-                markers = self._get_status_markers(prompt)
-                choice_str = f"{markers} {i + 1}: {prompt.title}"
-                choices.append((choice_str, prompt.id))
+            for i, p in enumerate(numbered_prompts):
+                markers = self._get_status_markers(p)
+                choice_str = f"{markers} {i + 1}: {p.title}" # Format for number jump
+                choices.append((choice_str, p.id))
 
             # Add special actions
             choices.append(("- Add New Prompt -", "add_new"))
@@ -952,7 +922,7 @@ class MenuSystem:
             questions = [
                 inquirer.List(
                     'selection',
-                    message="Select prompt to manage (use arrows, DFG keys, or numbers), or choose an action",
+                    message="Select prompt (use arrows, DFG keys, or numbers), or choose an action",
                     choices=choices,
                     carousel=True
                 )
@@ -966,23 +936,25 @@ class MenuSystem:
                 selected_value = answers['selection']
 
                 if selected_value == "back":
-                    return None
+                    return None # Exit function
                 elif selected_value == "add_new":
                     self._add_new_prompt()
-                    continue
+                    continue # Re-enter the loop to show updated list
                 else:
                     # Find the selected prompt
                     selected_prompt = self.config.prompts.get(selected_value)
                     if selected_prompt:
                         action_result = self._show_prompt_actions_menu(selected_prompt)
                         if action_result == "start_chat":
-                            return "start_chat"
-                        continue
+                            return "start_chat" # Exit function
+                        # If action menu returns None (due to break/back), we simply continue the loop here
+                        continue # Re-enter the loop to show potentially updated list
                     else:
                         self.console.print("Error: Selected prompt not found.", style="red")
-                        continue
+                        continue # Re-enter the loop
 
             except KeyboardInterrupt:
                 return None  # Handle Ctrl+C gracefully
 
-        return None  # Default return if loop exits cleanly
+        # This return is likely unreachable now due to the loop structure
+        # return None 
