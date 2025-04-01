@@ -109,17 +109,14 @@ class MenuSystem:
 
     def _add_new_prompt(self):
         """Add a new system prompt."""
+        # Remove 'content' question from here
         questions = [
             inquirer.Text(
                 "title",
                 message="Enter the prompt title",
                 validate=lambda _, x: bool(x.strip())
             ),
-            inquirer.Editor(
-                "content",
-                message="Enter the prompt content",
-                validate=lambda _, x: bool(x.strip())
-            ),
+            # inquirer.Text('content', message="Enter prompt content (single line for now, use Edit Content for multi-line):"),
             inquirer.Confirm(
                 "is_active",
                 message="Make this prompt active?",
@@ -128,20 +125,48 @@ class MenuSystem:
         ]
 
         try:
+            # Get title and is_active first
             answers = inquirer.prompt(questions)
             if answers:
+                # Now get content using the custom loop
+                self.console.print("Enter prompt content. Type EOF on a new line by itself and press Enter to finish:")
+                content_lines = []
                 try:
-                    self.config.add_prompt(
-                        title=answers["title"],
-                        content=answers["content"],
-                        make_active=answers["is_active"]
-                    )
-                    self.console.print("New prompt added successfully.", style="green")
-                except ValueError as e:
-                    self.console.print(f"Error adding prompt: {e}", style="red")
-                except Exception as e:
-                    self.console.print(f"An unexpected error occurred: {e}", style="red")
+                    while True:
+                        try:
+                            line = input("> ")
+                            if line.strip().upper() == 'EOF':
+                                break
+                            content_lines.append(line)
+                        except EOFError:  # Handle Ctrl+D
+                            break
+                        except KeyboardInterrupt: # Handle Ctrl+C
+                            self.console.print("\nInput cancelled.", style="yellow")
+                            content_lines = None
+                            break # Exit the input loop
+                
+                    if content_lines is not None:
+                        new_content = "\n".join(content_lines)
+                        # Now add the prompt with the gathered content
+                        try:
+                            self.config.add_prompt(
+                                title=answers["title"],
+                                content=new_content, 
+                                make_active=answers["is_active"]
+                            )
+                            self.console.print("New prompt added successfully.", style="green")
+                        except ValueError as e:
+                            self.console.print(f"Error adding prompt: {e}", style="red")
+                        except Exception as e:
+                            self.console.print(f"An unexpected error occurred: {e}", style="red")
+                    else:
+                        # Input was cancelled via Ctrl+C during content entry
+                        self.console.print("Prompt creation cancelled.", style="yellow")
+                except Exception as e: # Catch potential issues with the input() itself if needed
+                    self.console.print(f"An error occurred during content input: {e}", style="red")
+
         except KeyboardInterrupt:
+            # Ctrl+C during title/is_active input
             self.console.print("\nPrompt creation cancelled.", style="yellow")
             
         # No explicit return - allows _manage_system_prompts to continue its loop
@@ -175,8 +200,8 @@ class MenuSystem:
             self.console.print(f"{i}. {markers} {prompt.title}")
 
     def _show_prompt_actions_menu(self, prompt: SystemPrompt) -> Optional[str]:
-        """Shows the actions menu for a selected prompt."""
-        while True:
+        """Shows the actions menu for a selected prompt, looping until an exit condition."""
+        while True: # Outer loop for staying in the action menu
             # Build dynamic action list based on prompt state
             actions_available = []
 
@@ -185,7 +210,7 @@ class MenuSystem:
                 actions_available.append(("Set as Active", "set_active"))
                 actions_available.append(("Activate and Chat", "activate_chat"))
             else:
-                actions_available.append(("[Currently Active]", "noop"))
+                actions_available.append(("Start Chat with this Prompt", "activate_chat"))
 
             # Add pin/unpin actions
             if prompt.pinned:
@@ -236,107 +261,246 @@ class MenuSystem:
 
             try:
                 answers = inquirer.prompt(questions)
-                if not answers:
-                    return None
+                if not answers: # Handle Ctrl+C during inquirer prompt
+                    return None # Exit function entirely
 
                 chosen_action_key = answers['action']
 
                 if chosen_action_key == "noop":
-                    continue
+                    continue # Restart the while loop (stay in action menu)
                 elif chosen_action_key == "back":
-                    return None
+                    break # Exit the while loop, implicitly returns None
                 elif chosen_action_key == "set_active":
-                    self.config.set_active_prompt(prompt.id)
-                    self.console.print("Prompt set as active.", style="green")
+                    try:
+                        self.config.set_active_prompt(prompt.id)
+                        self.console.print("Prompt set as active.", style="green")
+                        break # Exit the while loop, implicitly returns None
+                    except ValueError as e:
+                        self.console.print(f"Error setting active prompt: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                        self.console.print(f"An unexpected error occurred: {e}", style="red")
+                        continue # Stay in action menu on error
                 elif chosen_action_key == "activate_chat":
-                    self.config.set_active_prompt(prompt.id)
-                    return "start_chat"
+                    try:
+                        # Ensure prompt is set active even if already active (harmless)
+                        self.config.set_active_prompt(prompt.id) 
+                        return "start_chat" # Exit function immediately
+                    except ValueError as e:
+                        self.console.print(f"Error activating prompt for chat: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "pin":
-                    self.config.toggle_pin_status(prompt.id)
-                    self.console.print("Prompt pinned.", style="green")
-                    return None  # Return to list to see new order
+                    try:
+                        self.config.toggle_pin_status(prompt.id)
+                        self.console.print("Prompt pinned.", style="green")
+                        break # Exit the while loop, implicitly returns None
+                    except ValueError as e:
+                        self.console.print(f"Error pinning prompt: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "unpin":
-                    # Handle guided placement
-                    position_q = [
-                        inquirer.Text(
-                            'position',
-                            message="Enter desired position in list (leave empty for end)",
-                            validate=lambda _, x: not x or x.isdigit()
-                        )
-                    ]
-                    pos_answer = inquirer.prompt(position_q)
-                    if pos_answer:
-                        target_order = int(pos_answer['position']) - 1 if pos_answer['position'] else None
-                        self.config.toggle_pin_status(prompt.id, new_list_order_on_unpin=target_order)
-                        self.console.print("Prompt unpinned.", style="green")
-                    return None  # Return to list to see new order
+                    try:
+                        # Handle guided placement
+                        position_q = [
+                            inquirer.Text(
+                                'position',
+                                message="Enter desired position in list (leave empty for end)",
+                                validate=lambda _, x: not x or x.isdigit()
+                            )
+                        ]
+                        pos_answer = inquirer.prompt(position_q)
+                        if pos_answer: # User provided input (didn't Ctrl+C)
+                            target_order = int(pos_answer['position']) - 1 if pos_answer['position'] else None
+                            self.config.toggle_pin_status(prompt.id, new_list_order_on_unpin=target_order)
+                            self.console.print("Prompt unpinned.", style="green")
+                            break # Exit the while loop, implicitly returns None
+                        else: # User Ctrl+C'd the position prompt
+                            self.console.print("Unpin cancelled.", style="yellow")
+                            continue # Stay in action menu
+                    except ValueError as e:
+                        self.console.print(f"Error unpinning prompt: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "move_up":
-                    self.config.move_prompt_list_order(prompt.id, -1)
+                    try:
+                        self.config.move_prompt_list_order(prompt.id, -1)
+                        break # Exit the while loop, implicitly returns None
+                    except ValueError as e:
+                        self.console.print(f"Error moving prompt: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "move_down":
-                    self.config.move_prompt_list_order(prompt.id, 1)
+                    try:
+                        self.config.move_prompt_list_order(prompt.id, 1)
+                        break # Exit the while loop, implicitly returns None
+                    except ValueError as e:
+                        self.console.print(f"Error moving prompt: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "move_top":
-                    self.config.move_prompt_list_top(prompt.id)
+                    try:
+                        self.config.move_prompt_list_top(prompt.id)
+                        break # Exit the while loop, implicitly returns None
+                    except ValueError as e:
+                        self.console.print(f"Error moving prompt: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "move_bottom":
-                    self.config.move_prompt_list_bottom(prompt.id)
+                    try:
+                        self.config.move_prompt_list_bottom(prompt.id)
+                        break # Exit the while loop, implicitly returns None
+                    except ValueError as e:
+                        self.console.print(f"Error moving prompt: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "move_pos":
-                    position_q = [
-                        inquirer.Text(
-                            'position',
-                            message="Enter target position number",
-                            validate=lambda _, x: x.isdigit() and int(x) > 0
-                        )
-                    ]
-                    pos_answer = inquirer.prompt(position_q)
-                    if pos_answer:
-                        target_position = int(pos_answer['position']) - 1  # Convert to 0-based index
-                        self.config.move_prompt_list_position(prompt.id, target_position)
+                    try:
+                        position_q = [
+                            inquirer.Text(
+                                'position',
+                                message="Enter target position number",
+                                validate=lambda _, x: x.isdigit() and int(x) > 0
+                            )
+                        ]
+                        pos_answer = inquirer.prompt(position_q)
+                        if pos_answer: # User provided input
+                            target_position = int(pos_answer['position']) - 1  # Convert to 0-based index
+                            self.config.move_prompt_list_position(prompt.id, target_position)
+                            break # Exit the while loop, implicitly returns None
+                        else: # User Ctrl+C'd position prompt
+                            self.console.print("Move cancelled.", style="yellow")
+                            continue # Stay in action menu
+                    except ValueError as e:
+                        self.console.print(f"Error moving prompt: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "edit_title":
-                    title_q = [
-                        inquirer.Text(
-                            'title',
-                            message="Enter new title",
-                            default=prompt.title
-                        )
-                    ]
-                    title_answer = inquirer.prompt(title_q)
-                    if title_answer and title_answer['title']:
-                        self.config.edit_title(prompt.id, title_answer['title'])
-                        self.console.print("Title updated.", style="green")
+                    try:
+                        title_q = [
+                            inquirer.Text(
+                                'title',
+                                message="Enter new title",
+                                default=prompt.title
+                            )
+                        ]
+                        title_answer = inquirer.prompt(title_q)
+                        if title_answer and title_answer['title'].strip(): # Check if input provided and not just whitespace
+                            self.config.edit_title(prompt.id, title_answer['title'])
+                            self.console.print("Title updated.", style="green")
+                            # Reload the prompt object to reflect title change in the menu message
+                            prompt = self.config.prompts.get(prompt.id) 
+                            if not prompt:
+                                self.console.print("Error reloading prompt after edit, returning to list.", style="red")
+                                break # Exit loop if prompt disappears unexpectedly
+                            continue # Stay in action menu to allow further edits
+                        else: # User cancelled or entered empty title
+                            self.console.print("Title edit cancelled.", style="yellow")
+                            continue # Stay in action menu
+                    except ValueError as e:
+                        self.console.print(f"Error editing title: {e}", style="red")
+                        continue # Stay in action menu on error
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu on error
                 elif chosen_action_key == "edit_content":
-                    content_q = [
-                        inquirer.Text(
-                            'content',
-                            message="Enter new content (use \\n for line breaks)",
-                            default=prompt.content
-                        )
-                    ]
-                    content_answer = inquirer.prompt(content_q)
-                    if content_answer and content_answer['content']:
-                        self.config.edit_content(prompt.id, content_answer['content'])
-                        self.console.print("Content updated.", style="green")
+                    # Display current content before editing
+                    self.console.print(Panel(prompt.content, title=f"Current Content for [bold]'{prompt.title}'[/bold]", border_style="dim", expand=False))
+                    self.console.print() # Add a blank line for spacing
+                    self.console.print("Enter new content below. Type EOF on a new line by itself and press Enter to finish:")
+                    content_lines = []
+                    input_cancelled = False
+                    try:
+                        while True:
+                            try:
+                                line = input("> ")
+                                if line.strip().upper() == 'EOF':
+                                    break
+                                content_lines.append(line)
+                            except EOFError:  # Handle Ctrl+D
+                                break
+                            except KeyboardInterrupt: # Handle Ctrl+C
+                                self.console.print("\nInput cancelled.", style="yellow")
+                                content_lines = None
+                                input_cancelled = True
+                                break # Exit the input loop
+                        
+                        if not input_cancelled and content_lines is not None:
+                            new_content = "\n".join(content_lines)
+                            try:
+                                self.config.edit_content(prompt.id, new_content)
+                                self.console.print("Content updated.", style="green")
+                                # Reload prompt content for next potential edit display
+                                prompt = self.config.prompts.get(prompt.id)
+                                if not prompt:
+                                     self.console.print("Error reloading prompt after edit, returning to list.", style="red")
+                                     break # Exit loop if prompt disappears unexpectedly
+                                continue # Stay in action menu
+                            except ValueError as e:
+                                self.console.print(f"Error updating content: {e}", style="red")
+                                continue # Stay in action menu
+                            except Exception as e:
+                                self.console.print(f"An unexpected error occurred: {e}", style="red")
+                                continue # Stay in action menu
+                        else:
+                            # Input was cancelled via Ctrl+C or other issue
+                            # Message already printed in KeyboardInterrupt handler
+                            # self.console.print("Edit operation cancelled.", style="yellow") 
+                            continue # Stay in action menu
+                    except Exception as e: # Catch potential issues with the input() itself if needed
+                        self.console.print(f"An error occurred during input: {e}", style="red")
+                        continue # Stay in action menu
+                        
                 elif chosen_action_key == "delete":
-                    if prompt.is_active:
-                        self.console.print("Warning: This is the active prompt!", style="yellow")
-                    
-                    confirm_q = [
-                        inquirer.Confirm(
-                            'confirm',
-                            message="Are you sure you want to delete this prompt?",
-                            default=False
-                        )
-                    ]
-                    confirm_answer = inquirer.prompt(confirm_q)
-                    if confirm_answer and confirm_answer['confirm']:
-                        self.config.delete_prompt(prompt.id)
-                        self.console.print("Prompt deleted.", style="green")
-                        return None  # Return to list as prompt no longer exists
+                    try:
+                        if prompt.is_active:
+                            self.console.print("Warning: This is the active prompt!", style="yellow")
+                        
+                        confirm_q = [
+                            inquirer.Confirm(
+                                'confirm',
+                                message="Are you sure you want to delete this prompt?",
+                                default=False
+                            )
+                        ]
+                        confirm_answer = inquirer.prompt(confirm_q)
+                        if confirm_answer and confirm_answer['confirm']:
+                            self.config.delete_prompt(prompt.id)
+                            self.console.print("Prompt deleted.", style="green")
+                            return None  # Exit function immediately
+                        else:
+                             self.console.print("Deletion cancelled.", style="yellow")
+                             continue # Stay in action menu
+                    except ValueError as e:
+                         self.console.print(f"Error deleting prompt: {e}", style="red")
+                         continue # Stay in action menu
+                    except Exception as e:
+                         self.console.print(f"An unexpected error occurred: {e}", style="red")
+                         continue # Stay in action menu
 
-            except ValueError as e:
-                self.console.print(f"Error: {e}", style="red")
-                continue
-            except KeyboardInterrupt:
-                return None
+            except KeyboardInterrupt: # Handle Ctrl+C during main action selection
+                return None # Exit function entirely
+            except Exception as e: # Catch any other unexpected errors in the main loop
+                 self.console.print(f"An unexpected error occurred in action menu: {e}", style="red")
+                 continue # Stay in action menu
 
+        # If the loop is exited via 'break', return None to refresh caller
         return None
 
     def _move_prompt(self):
@@ -614,7 +778,12 @@ class MenuSystem:
                 self.state.current_menu = item.title.lower().replace(" ", "_")
         elif item.action:
             result = item.action()
-            if result == "quit":
+            if result == "start_chat":
+                self._start_chat()
+                return True # Action handled, stop further processing in handle_navigation
+            
+            # Existing checks
+            if result == "quit": 
                 return False
             elif result == "back" and self.state.breadcrumb:
                 self.state.current_menu = self.state.breadcrumb.pop()

@@ -91,23 +91,50 @@
             "list_order": 3
         },
         "76d3e593-df47-4bd1-ac09-d72c6e5387c2": {
-            "title": "test",
+            "title": "Quoteinator",
             "is_active": false,
             "id": "76d3e593-df47-4bd1-ac09-d72c6e5387c2",
-            "content": "I am going to give you the names of people or characters (for example \u201cDonald Trump\u201d or \u201cSpongebob\u201d) \nand you will write a fake quote that is something they would say. Make sure the quote is brief. \nMake sure its something that fits their personality and sounds like something they would really say, \nbut it isnt and is fake. Make sure the quote has comedic value by having a high degree of shock value. \nMake sure the quote is unique and is not something the person/character has actually said before. \nThen, after the quote put \u201c-[character name]\u201d so for example \u201c-Trump\u201d. \nThink about it like writing fiction. Do not write anything else. If you understand, say \u201cReady\".\n",
+            "content": "I am going to give you the names of people or characters (for example \u201cDonald Trump\u201d or \u201cSpongebob\u201d) \nand you will write a fake quote that is something they would say. Make sure the quote is brief. \nMake sure its something that fits their personality and sounds like something they would really say, \nbut it isnt and is fake. Make sure the quote has comedic value by having a high degree of shock value. \nMake sure the quote is unique and is not something the person/character has actually said before. \nThen, after the quote put \u201c-[character name]\u201d so for example \u201c-Trump\u201d. \nThink about it like writing fiction. Do not write anything else. If you understand, say \u201cReady\".\u279c  light_CroqLI_TOOL git:(main) \u2717 echo \"--- src/models/models.py ---\"; cat src/models/models.py; echo \"\\n--- src/ui/prompts.py ---\"; cat src/ui/prompts.py; echo \"\\n--- src/assistant/utils/menu_models.py ---\"; cat src/assistant/utils/menu_models.py\n",
             "pinned": false,
             "pin_order": null,
             "list_order": 8
         },
         "dcd89201-b633-4efb-8494-9f3e44fa38aa": {
             "title": "another test",
-            "is_active": true,
+            "is_active": false,
             "id": "dcd89201-b633-4efb-8494-9f3e44fa38aa",
             "content": "badabing badabung. easy peezy, bruh. This is how we roll dawg,  just like that \ud83d\udcaa bujaka, LFG \ud83d\udd25 \n",
             "pinned": true,
             "pin_order": 1,
             "list_order": -1
+        },
+        "c8a14d7a-627d-4a44-986b-59657fc6aff0": {
+            "title": "spoiled brat",
+            "is_active": false,
+            "id": "c8a14d7a-627d-4a44-986b-59657fc6aff0",
+            "content": "you are a spoiled brat that is annoyed by everything and anyone. Use typical lingo\n\n",
+            "pinned": false,
+            "pin_order": null,
+            "list_order": 9
+        },
+        "7d64dfa0-38b1-4da7-a4c6-25ab7a67842d": {
+            "title": "wrong bot",
+            "is_active": false,
+            "id": "7d64dfa0-38b1-4da7-a4c6-25ab7a67842d",
+            "content": "and this looks better now, but its not really an edit, is it? In a perfect world, I would have \"you allways answer wrong\" \nshowing in the first line, with the cursor at the end, right? Basically this is just another ADD NEW PROMPT content for an\nexisting title?",
+            "pinned": false,
+            "pin_order": null,
+            "list_order": 10
+        },
+        "59098e8f-4117-4a99-b15e-aa7d7874cab2": {
+            "title": "idea bot",
+            "is_active": true,
+            "id": "59098e8f-4117-4a99-b15e-aa7d7874cab2",
+            "content": "you will give ideas for fun on-liner prompts\nthat I can use for testing purposes",
+            "pinned": false,
+            "pin_order": null,
+            "list_order": 11
         }
     },
-    "active_prompt_id": "dcd89201-b633-4efb-8494-9f3e44fa38aa"
+    "active_prompt_id": "59098e8f-4117-4a99-b15e-aa7d7874cab2"
 }

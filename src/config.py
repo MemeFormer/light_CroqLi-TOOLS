@@ -328,7 +328,11 @@ class Config(BaseModel):
             raise ValueError("Invalid prompt ID")
             
         # Store prompt info before deletion
-        prompt = self.prompts[prompt_id]
+        prompt = self.prompts.get(prompt_id)
+        if not prompt:
+            print(f"ERROR: Prompt ID {prompt_id} not found in self.prompts despite initial check.")
+            return
+             
         old_list_order = prompt.list_order
         was_pinned = prompt.pinned
         old_pin_order = prompt.pin_order
@@ -337,7 +341,9 @@ class Config(BaseModel):
         del self.prompts[prompt_id]
         
         # Handle active prompt
+        active_prompt_was_deleted = False
         if self.active_prompt_id == prompt_id:
+            active_prompt_was_deleted = True
             self.active_prompt_id = None
             
             # Find new prompt to activate
@@ -347,23 +353,24 @@ class Config(BaseModel):
             )
             
             if remaining_prompts:
-                # Set first prompt as active (set_active_prompt will save)
                 self.set_active_prompt(remaining_prompts[0].id)
-                
-        # Recalculate orders
-        if was_pinned:
-            # Update pin_order for remaining pinned prompts
-            for p in self.prompts.values():
-                if p.pinned and p.pin_order is not None and p.pin_order > old_pin_order:
-                    p.pin_order -= 1
-        else:
-            # Update list_order for remaining non-pinned prompts
-            for p in self.prompts.values():
-                if not p.pinned and p.list_order > old_list_order:
-                    p.list_order -= 1
-        
-        # Save unless we just called set_active_prompt
-        if self.active_prompt_id != prompt_id:
+            else:
+                self.active_prompt_id = None
+                self.save_prompts() 
+
+        # Recalculate orders only if the active prompt wasn't deleted (as set_active_prompt handles saving)
+        if not active_prompt_was_deleted:
+            if was_pinned:
+                # Update pin_order for remaining pinned prompts
+                for p in self.prompts.values():
+                    if p.pinned and p.pin_order is not None and old_pin_order is not None and p.pin_order > old_pin_order:
+                        p.pin_order -= 1
+            else:
+                # Update list_order for remaining non-pinned prompts
+                for p in self.prompts.values():
+                    if not p.pinned and old_list_order is not None and p.list_order > old_list_order:
+                        p.list_order -= 1
+            
             self.save_prompts()
 
     def save_prompts(self, prompts_file="system_prompts.json"):
