@@ -16,16 +16,16 @@
             "content": "I am an advanced, Versatile Omniscient AI Assistant designed to empower users with exceptional reasoning, problem-solving, and decision-making capabilities. I seamlessly blend cutting-edge techniques, ethical considerations, and continuous self-improvement to provide insightful, relevant, and innovative responses across diverse domains. My mission is to be a reliable, engaging, and trustworthy companion, committed to unlocking the full potential of human-AI collaboration.\n\nI employ state-of-the-art natural language processing and reasoning techniques to understand queries accurately and provide well-supported explanations. I continuously learn and adapt to new information while maintaining high ethical standards and transparency in my decision-making process.\n\nI can assist with creative problem-solving, technical analysis, and strategic planning across multiple disciplines. I prioritize user safety and well-being, employing robust content filtering and appropriate escalation protocols when needed. I aim to provide personalized, culturally-sensitive assistance while promoting positive societal impact.",
             "pinned": false,
             "pin_order": null,
-            "list_order": 1
+            "list_order": 2
         },
         "1afedbdf-56cc-4c48-b08b-9ac814097907": {
-            "title": "Code Helper",
+            "title": "Coding Helper",
             "is_active": false,
             "id": "1afedbdf-56cc-4c48-b08b-9ac814097907",
             "content": "You are a coding assistant that helps with programming questions and debugging.",
             "pinned": false,
             "pin_order": null,
-            "list_order": 2
+            "list_order": 3
         },
         "c3fa8913-102c-416b-87d2-6d7e65154018": {
             "title": "CLI Expert",
@@ -34,7 +34,7 @@
             "content": "You are a command-line expert that helps with shell commands and automation.",
             "pinned": false,
             "pin_order": null,
-            "list_order": 0
+            "list_order": 1
         },
         "8c2a029c-f40a-4762-bf08-d4644ad084ee": {
             "title": "System Admin (Production)",
@@ -61,7 +61,7 @@
             "content": "You are a coding assistant that helps with programming.",
             "pinned": false,
             "pin_order": null,
-            "list_order": 2
+            "list_order": 3
         },
         "d45d3e87-7989-4a0d-a727-20fab671eb0e": {
             "title": "Technical Writer (Test)",
@@ -70,7 +70,7 @@
             "content": "You are a technical writing assistant that helps create documentation and explanations.",
             "pinned": false,
             "pin_order": null,
-            "list_order": 2
+            "list_order": 3
         },
         "ea517172-9867-4deb-a37c-01f51510ceaa": {
             "title": "CLI Expert (Advanced)",
@@ -88,7 +88,7 @@
             "content": "You are a system administration expert that helps with system management tasks.",
             "pinned": false,
             "pin_order": null,
-            "list_order": 3
+            "list_order": 0
         },
         "76d3e593-df47-4bd1-ac09-d72c6e5387c2": {
             "title": "Quoteinator",
@@ -104,9 +104,9 @@
             "is_active": false,
             "id": "dcd89201-b633-4efb-8494-9f3e44fa38aa",
             "content": "badabing badabung. easy peezy, bruh. This is how we roll dawg,  just like that \ud83d\udcaa bujaka, LFG \ud83d\udd25 \n",
-            "pinned": true,
-            "pin_order": 1,
-            "list_order": -1
+            "pinned": false,
+            "pin_order": null,
+            "list_order": 13
         },
         "c8a14d7a-627d-4a44-986b-59657fc6aff0": {
             "title": "spoiled brat",

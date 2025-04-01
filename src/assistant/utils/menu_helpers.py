@@ -202,6 +202,23 @@ class MenuSystem:
     def _show_prompt_actions_menu(self, prompt: SystemPrompt) -> Optional[str]:
         """Shows the actions menu for a selected prompt, looping until an exit condition."""
         while True: # Outer loop for staying in the action menu
+            
+            # Determine the display identifier for the prompt title
+            prompt_display_id = ""
+            pinned_keys = ['D', 'F', 'G', 'H', 'J', 'K'] # Keep consistent with _manage_system_prompts
+            if prompt.pinned:
+                if prompt.pin_order is not None and 0 <= prompt.pin_order < len(pinned_keys):
+                    prompt_display_id = f"{pinned_keys[prompt.pin_order]}:"
+                else:
+                     prompt_display_id = "Pinned:" # Fallback if pin_order is invalid
+            else:
+                # Assuming list_order is 0-based, add 1 for display
+                prompt_display_id = f"{prompt.list_order + 1}:"
+                
+            # Include status markers too
+            markers = self._get_status_markers(prompt)
+            full_display_prefix = f"{markers} {prompt_display_id}" # e.g., "● D:" or "○ 3:"
+            
             # Build dynamic action list based on prompt state
             actions_available = []
 
@@ -253,7 +270,8 @@ class MenuSystem:
             questions = [
                 inquirer.List(
                     'action',
-                    message=f"Actions for '{prompt.title}'",
+                    # Update message to include the identifier
+                    message=f"Actions for {full_display_prefix} '{prompt.title}'",
                     choices=actions_available,
                     carousel=True
                 )
@@ -423,7 +441,9 @@ class MenuSystem:
                     # Display current content before editing
                     self.console.print(Panel(prompt.content, title=f"Current Content for [bold]'{prompt.title}'[/bold]", border_style="dim", expand=False))
                     self.console.print() # Add a blank line for spacing
-                    self.console.print("Enter new content below. Type EOF on a new line by itself and press Enter to finish:")
+                    
+                    # Modify instruction to include Ctrl+C hint
+                    self.console.print("Enter new content below. Type EOF on a new line by itself and press Enter to finish. Press Ctrl+C to cancel:")
                     content_lines = []
                     input_cancelled = False
                     try:
