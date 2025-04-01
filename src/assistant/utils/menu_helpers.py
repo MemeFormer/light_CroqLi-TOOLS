@@ -745,19 +745,19 @@ class MenuSystem:
         return "settings"
 
     def display_current_menu(self):
-        """Display the current menu with rich formatting"""
-        menu = self.menus[self.state.current_menu]
+        """(Deprecated/Simplified) Display the current menu breadcrumb."""
+        # menu = self.menus[self.state.current_menu] # No longer needed
         
         # Create breadcrumb trail
         breadcrumb = " > ".join(self.state.breadcrumb + [self.state.current_menu.title()])
         self.console.print(f"\n{breadcrumb}", style="bold blue")
         
-        # Display menu items
-        for key, item in menu.items():
-            if item.enabled:
-                prefix = "└─ " if key == list(menu.keys())[-1] else "├─ "
-                style = "bold green" if item.submenu else "white"
-                self.console.print(f"{prefix}{item.key_binding}. {item.title}", style=style)
+        # # Display menu items - Now handled by inquirer
+        # for key, item in menu.items():
+        #     if item.enabled:
+        #         prefix = "└─ " if key == list(menu.keys())[-1] else "├─ "
+        #         style = "bold green" if item.submenu else "white"
+        #         self.console.print(f"{prefix}{item.key_binding}. {item.title}", style=style)
 
     def handle_navigation(self, choice: str) -> bool:
         """Handle menu navigation with breadcrumb tracking"""
@@ -791,15 +791,51 @@ class MenuSystem:
         return True
 
     def run(self):
-        """Main menu loop with rich UI"""
+        """Main menu loop using inquirer for navigation."""
         self.console.print("WelcOme to Light CroqLI TOOL!", style="bold green")
         
         while True:
-            self.display_current_menu()
-            choice = self.console.input("\nEnter your choice: ")
+            # Display Breadcrumbs
+            breadcrumb = " > ".join(self.state.breadcrumb + [self.state.current_menu.title()])
+            self.console.print(f"\n{breadcrumb}", style="bold blue")
             
-            if not self.handle_navigation(choice):
-                break
+            # Prepare Inquirer Choices
+            menu = self.menus[self.state.current_menu]
+            choices = []
+            for key, item in menu.items():
+                if item.enabled:
+                    choice_str = f"{item.key_binding}. {item.title}"
+                    choices.append((choice_str, item.key_binding)) # Use key_binding as the value
+            
+            # Create and execute inquirer prompt
+            questions = [
+                inquirer.List(
+                    'selection',
+                    message="Select an option:", # Simple message
+                    choices=choices,
+                    carousel=True # Keep carousel for longer menus
+                )
+            ]
+            
+            try:
+                answers = inquirer.prompt(questions)
+                if not answers: # Handle Ctrl+C
+                    # Decide if Ctrl+C should quit or go back. Let's quit for now.
+                    self._quit()
+                    break # Exit the main loop
+                    
+                choice = answers['selection'] # Get the selected key_binding
+
+                if not self.handle_navigation(choice):
+                    break # Exit loop if handle_navigation returns False (e.g., Quit action)
+            except KeyboardInterrupt: # Should be caught by inquirer, but as fallback
+                 self._quit()
+                 break
+            except Exception as e:
+                 self.console.print(f"An unexpected error occurred in main loop: {e}", style="red")
+                 # Decide whether to continue or break on unexpected errors
+                 # continue # Option to try again
+                 break # Option to exit safely
 
     def _start_chat(self):
         chat_mode(self.config, self.console, self.groq_service)
