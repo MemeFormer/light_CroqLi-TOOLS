@@ -824,7 +824,8 @@ class MenuSystem:
             choices = []
             for key, item in menu.items():
                 if item.enabled:
-                    choice_str = f"{item.key_binding}. {item.title}"
+                    # Put number/key first, use colon separator
+                    choice_str = f"{item.key_binding}: {item.title}"
                     choices.append((choice_str, item.key_binding)) # Use key_binding as the value
             
             # Create and execute inquirer prompt
@@ -961,13 +962,15 @@ class MenuSystem:
             for i, p in enumerate(pinned_prompts):
                 if i < len(pinned_keys):
                     markers = self._get_status_markers(p)
-                    choice_str = f"{markers} {pinned_keys[i]}: {p.title}" # Format for key jump
+                    # Put key first
+                    choice_str = f"{pinned_keys[i]}: {markers} {p.title}"
                     choices.append((choice_str, p.id))
 
             # Add numbered prompt choices
             for i, p in enumerate(numbered_prompts):
                 markers = self._get_status_markers(p)
-                choice_str = f"{markers} {i + 1}: {p.title}" # Format for number jump
+                # Put number first
+                choice_str = f"{i + 1}: {markers} {p.title}"
                 choices.append((choice_str, p.id))
 
             # Add special actions
