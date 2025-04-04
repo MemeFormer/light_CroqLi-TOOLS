@@ -9,6 +9,8 @@ from typing import Any
 from src.models.models import SystemPrompt, ModelSettings, APIKeys
 
 
+# Define config file path
+CONFIG_FILE = "config.json"
 
 class Config(BaseModel):
     model_settings: ModelSettings = Field(default_factory=lambda: ModelSettings(model_name="llama3-70b-8192", max_tokens=4096, temperature=0.7, top_p=0.9))
@@ -18,8 +20,6 @@ class Config(BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
-        if not self.prompts:
-            self._create_default_prompts()
 
     def _create_default_prompts(self):
         default_prompts = [
@@ -84,39 +84,60 @@ class Config(BaseModel):
             return self.prompts.get(self.active_prompt_id)
         return None
 
-    def load_prompts(self, prompts_file="system_prompts.json"):
+    def load_system_prompts(self, prompts_file="system_prompts.json"):
         try:
             with open(prompts_file, "r") as f:
                 data = json.load(f)
                 prompts_data = data.get("prompts", {})
-                
-                # Check if we're dealing with old or new format
-                sample_prompt = next(iter(prompts_data.values())) if prompts_data else {}
-                is_old_format = "priority" in sample_prompt
-                
-                if is_old_format:
-                    # Migration from old format
-                    display_order = data.get("display_order", [])
-                    for idx, prompt_id in enumerate(display_order):
-                        old_prompt = prompts_data[prompt_id]
-                        self.prompts[prompt_id] = SystemPrompt(
-                            id=prompt_id,
-                            title=old_prompt["name"],
-                            content=old_prompt["prompt_text"],
-                            is_active=old_prompt["is_active"],
-                            pinned=old_prompt["priority"] == 1,
-                            pin_order=idx if old_prompt["priority"] == 1 else None,
-                            list_order=idx
-                        )
-                else:
-                    # New format
-                    self.prompts = {pid: SystemPrompt(**pdata) for pid, pdata in prompts_data.items()}
-                
+                self.prompts = {pid: SystemPrompt(**pdata) for pid, pdata in prompts_data.items()}
                 self.active_prompt_id = data.get("active_prompt_id")
-                
+                # Ensure is_active flags are consistent
+                for prompt in self.prompts.values():
+                     prompt.is_active = (prompt.id == self.active_prompt_id)
         except FileNotFoundError:
-            self._create_default_prompts()
-            self.save_prompts()  # We'll implement this in the next step
+            print(f"System prompts file ({prompts_file}) not found. Creating defaults.")
+            self._create_default_prompts() # Create defaults if file missing
+            self.save_system_prompts() # Save the newly created defaults
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            print(f"Error loading system prompts from {prompts_file}: {e}. Using empty/defaults.")
+            self.prompts = {}
+            self.active_prompt_id = None
+            self._create_default_prompts() # Attempt to create defaults even on load error
+            # Decide if saving defaults here is appropriate after load error
+            # self.save_system_prompts()
+
+    def save_system_prompts(self, prompts_file="system_prompts.json"):
+        try:
+            with open(prompts_file, "w") as f:
+                json.dump({
+                    "prompts": {pid: p.model_dump() for pid, p in self.prompts.items()},
+                    "active_prompt_id": self.active_prompt_id
+                }, f, indent=4)
+        except (IOError, TypeError) as e:
+             print(f"Error: Failed to save system prompts to {prompts_file}: {str(e)}")
+             # raise RuntimeError(f"Failed to save system prompts: {str(e)}")
+             
+    def save_config(self) -> None:
+        """Saves the main configuration (settings, keys) to config.json."""
+        CONFIG_FILE = "config.json" # Define locally just in case
+        try:
+            # Exclude prompts data from this save, as they are saved separately
+            config_data_to_save = self.model_dump(exclude={'prompts', 'active_prompt_id'}, mode='json')
+            with open(CONFIG_FILE, "w") as f:
+                 json.dump(config_data_to_save, f, indent=4)
+        except (IOError, TypeError, ValueError) as e:
+            print(f"Error: Failed to save configuration to {CONFIG_FILE}: {str(e)}")
+
+    def validate_configuration(self) -> bool:
+        try:
+            if not all(pid in self.prompts for pid in self.prompts.keys()):
+                return False
+            if self.active_prompt_id and self.active_prompt_id not in self.prompts:
+                return False
+            # Add checks for model_settings and api_keys if needed later
+            return True
+        except Exception:
+            return False
 
     def add_prompt(self, title: str, content: str, make_active: bool = False) -> None:
         """Add a new prompt with the specified title and content"""
@@ -144,7 +165,7 @@ class Config(BaseModel):
         if make_active:
             self.set_active_prompt(new_prompt.id)
         
-        self.save_prompts()
+        self.save_system_prompts()
 
     def set_active_prompt(self, prompt_id: Optional[str]) -> None:
         """Set the active prompt by its ID"""
@@ -157,7 +178,7 @@ class Config(BaseModel):
         for prompt in self.prompts.values():
             prompt.is_active = (prompt.id == prompt_id)
         
-        self.save_prompts()
+        self.save_system_prompts()
 
     def move_prompt_list_order(self, prompt_id: str, direction: int) -> None:
         """Move a non-pinned prompt up or down by one position"""
@@ -182,7 +203,7 @@ class Config(BaseModel):
             # Swap list_order values
             prompt.list_order = target_order
             target_prompt.list_order = current_order
-            self.save_prompts()
+            self.save_system_prompts()
 
     def move_prompt_list_position(self, prompt_id: str, new_list_order: int) -> None:
         """Move a non-pinned prompt to a specific position"""
@@ -220,7 +241,7 @@ class Config(BaseModel):
                     
         # Set new position
         prompt.list_order = new_list_order
-        self.save_prompts()
+        self.save_system_prompts()
 
     def move_prompt_list_top(self, prompt_id: str) -> None:
         """Move a non-pinned prompt to the top of the list"""
@@ -244,7 +265,7 @@ class Config(BaseModel):
             raise ValueError("Title cannot be empty")
             
         self.prompts[prompt_id].title = new_title.strip()
-        self.save_prompts()
+        self.save_system_prompts()
 
     def edit_content(self, prompt_id: str, new_content: str) -> None:
         """Edit a prompt's content"""
@@ -255,7 +276,7 @@ class Config(BaseModel):
             raise ValueError("Content cannot be None")
             
         self.prompts[prompt_id].content = new_content
-        self.save_prompts()
+        self.save_system_prompts()
 
     def toggle_pin_status(self, prompt_id: str, new_list_order_on_unpin: Optional[int] = None) -> None:
         """Toggle the pin status of a prompt and handle order recalculation"""
@@ -314,7 +335,7 @@ class Config(BaseModel):
                 if p.pinned and p.pin_order is not None and p.pin_order > old_pin_order:
                     p.pin_order -= 1
         
-        self.save_prompts()
+        self.save_system_prompts()
 
     def delete_prompt(self, prompt_id: str) -> None:
         """Delete a prompt by its ID and handle order recalculation"""
@@ -350,7 +371,7 @@ class Config(BaseModel):
                 self.set_active_prompt(remaining_prompts[0].id)
             else:
                 self.active_prompt_id = None
-                self.save_prompts() 
+                self.save_system_prompts() 
 
         # Recalculate orders only if the active prompt wasn't deleted (as set_active_prompt handles saving)
         if not active_prompt_was_deleted:
@@ -365,42 +386,49 @@ class Config(BaseModel):
                     if not p.pinned and old_list_order is not None and p.list_order > old_list_order:
                         p.list_order -= 1
             
-            self.save_prompts()
+            self.save_system_prompts()
 
-    def save_prompts(self, prompts_file="system_prompts.json"):
-        """Save prompts to JSON file using the new format"""
-        try:
-            with open(prompts_file, "w") as f:
-                json.dump({
-                    "prompts": {pid: p.model_dump() for pid, p in self.prompts.items()},
-                    "active_prompt_id": self.active_prompt_id
-                }, f, indent=4)
-        except IOError as e:
-            raise RuntimeError(f"Failed to save system prompts: {str(e)}")
-
-    def validate_configuration(self) -> bool:
-        try:
-            if not all(pid in self.prompts for pid in self.prompts.keys()):
-                return False
-
-            if self.active_prompt_id and self.active_prompt_id not in self.prompts:
-                return False
-
-            return True
-        except Exception:
-            return False
-
-def load_config():
-    print("Loading config...")
+# --- MODIFIED load_config Function --- 
+def load_config() -> Config:
+    config_instance = None
+    CONFIG_FILE = "config.json" # Define constant locally for safety
     try:
-        with open("config.json", "r") as f:
-            print("Reading config.json...")
+        print(f"Loading main configuration from {CONFIG_FILE}...")
+        with open(CONFIG_FILE, "r") as f:
             config_data = json.load(f)
-            print(f"Config data: {config_data}")
-            return Config(**config_data)
-    except FileNotFoundError:
-        print("No config.json found, using default config")
-        return Config()
+            # We only load settings/keys from config.json
+            # Prompts will be loaded separately by load_system_prompts
+            config_instance = Config(**config_data)
+            print(f"Main config loaded: {config_instance.model_settings}, {config_instance.api_keys}")
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e: # Added ValueError for Pydantic validation
+        print(f"Failed to load or validate {CONFIG_FILE} ({e}). Using default settings.")
+        config_instance = Config() # Create instance with default settings/keys
+        # Uncomment save call now that save_config exists
+        print(f"Saving default main configuration to {CONFIG_FILE}...")
+        config_instance.save_config() # Save the defaults immediately
     except Exception as e:
-        print(f"Error loading config: {str(e)}")
-        return Config()
+         print(f"Unexpected error loading main config: {e}. Using default settings.")
+         config_instance = Config() # Fallback to defaults
+         # Decide if saving is safe after unexpected error
+         # config_instance.save_config()
+         
+    # Ensure we have an instance
+    if config_instance is None:
+        print("Critical error: config_instance is None after load attempts. Creating defaults.")
+        config_instance = Config()
+        # Consider saving here too, although it might indicate a deeper issue
+        # config_instance.save_config()
+
+    # --- Load system prompts AFTER loading/creating main config --- 
+    print("Loading system prompts...")
+    # Assuming load_system_prompts is defined in Config class
+    if hasattr(config_instance, 'load_system_prompts') and callable(getattr(config_instance, 'load_system_prompts')):
+         config_instance.load_system_prompts() # Call the separate prompt loading method
+    else:
+         print("Error: config_instance does not have load_system_prompts method.")
+         # Handle this error appropriately - maybe create default prompts?
+         if hasattr(config_instance, '_create_default_prompts'):
+              config_instance._create_default_prompts()
+
+    print("Configuration loading complete.")
+    return config_instance
