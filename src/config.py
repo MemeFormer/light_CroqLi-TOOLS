@@ -6,19 +6,13 @@ import uuid
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from typing import Any
-from src.models.models import SystemPrompt
+from src.models.models import SystemPrompt, ModelSettings, APIKeys
 
 
 
 class Config(BaseModel):
-    groq_model: str = "llama3-70b-8192"
-    max_tokens: int = 1000
-    temperature: float = 0.7
-    top_p: float = 0.9
-    system_prompt: str = ""
-    active_prompt_index: int = 0
-    load_systemprompts: List[Dict[str, Any]] = Field(default_factory=list)
-    groq_api_key: Optional[str] = None
+    model_settings: ModelSettings = Field(default_factory=lambda: ModelSettings(model_name="llama3-70b-8192", max_tokens=4096, temperature=0.7, top_p=0.9))
+    api_keys: APIKeys = Field(default_factory=lambda: APIKeys(groq_api_key="", tavily_api_key=""))
     prompts: Dict[str, SystemPrompt] = Field(default_factory=dict)
     active_prompt_id: Optional[str] = None
 
