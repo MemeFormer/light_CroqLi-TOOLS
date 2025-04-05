@@ -10,8 +10,9 @@ import json
 import requests
 from typing import List, Dict, Any, Union
 from pydantic import BaseModel
+from src.config import Config # Import Config
 from src.services.groq_api import GroqService  # Correct import
-from src.models.models import ShellAndOS, CommandResult, HelpfulTip, ModelSettings, APIKeys, AtuinHistoryEntry
+from src.models.models import ShellAndOS, CommandResult, HelpfulTip, AtuinHistoryEntry
 from src.assistant.system_info import get_system_info
 from src.services.tavily_api import TavilyService  # Import TavilyService
 
@@ -25,7 +26,8 @@ class ShellHistoryEntry(BaseModel):
 class Tools:
     COMMAND_HISTORY_LENGTH = 100  # Define as class constant, adjust number as needed
 
-    def __init__(self, groq_service: GroqService):
+    def __init__(self, config: Config, groq_service: GroqService):
+        self.config = config # Store config
         self.groq_service = groq_service
         self.command_history: List[Dict[str, Any]] = [] # Initialize command_history here
         self.shell_and_os: ShellAndOS = self._detect_shell_and_os() # Detect shell and OS on initialization
@@ -146,8 +148,15 @@ class Tools:
             return result.model_dump_json()
     
     def provide_helpful_tips(self, command: str, error_message: str) -> str:
-        """Provides helpful tips for a failed command.  Accepts ShellAndOS as JSON string."""
+        """Provides helpful tips for a failed command. Reads settings from Config."""
         shell_and_os = self.shell_and_os
+        # Read model name from config
+        model_name = self.config.model_settings.model_name 
+        # Read temperature from config - use a low temp for factual tips
+        temperature = 0.1 # Hardcode low temp for tips, or make configurable
+        # Read max_tokens from config
+        max_tokens = self.config.model_settings.max_tokens # Or a specific lower value for tips
+        
         prompt = f"""
         The following command failed:
         Command: {command}
@@ -166,32 +175,39 @@ class Tools:
 
         system_prompt = f"You are a CLI assistant helping with a failed command on {shell_and_os.os.capitalize()} using {shell_and_os.shell} shell."
 
-        # Instead of calling the Groq API directly, construct a JSON representation of the API call
-        # This will be executed by the GroqService
+        # Construct the API call payload using values read from config
         api_call = {
-                "model": "mixtral-8x7b-32768",  # Or use config.groq_model
+                "model": model_name, 
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
             ],
-            "temperature": 0.1,
-            "max_tokens": 32768,
+            "temperature": temperature,
+            "max_tokens": max_tokens, 
             "response_format": {"type": "json_object"}
         }
-        # Execute the API call using GroqService
-        response = self.groq_service.client.chat.completions.create(**api_call) # use groq_service.client
-
+        
+        # Ensure Groq client is initialized before use
+        if self.groq_service.client is None:
+             self.groq_service._initialize_client() # Call the service's initializer
+        if self.groq_service.client is None:
+             return json.dumps({"explanation": "Error: Groq client not initialized.", "suggestion": "Check API Key.", "additional_info": ""})
+             
+        # Execute the API call using GroqService client
         try:
+            response = self.groq_service.client.chat.completions.create(**api_call) 
             response_data = json.loads(response.choices[0].message.content)
             tip = HelpfulTip(
-                explanation=response_data['explanation'],
-                suggestion=response_data['suggestion'],
-                additional_info=response_data['additional_info']
+                explanation=response_data.get('explanation', "N/A"),
+                suggestion=response_data.get('suggestion', "N/A"),
+                additional_info=response_data.get('additional_info', "N/A")
             )
             return tip.model_dump_json()
-
         except json.JSONDecodeError:
-            return json.dumps({"explanation": "Error parsing response.", "suggestion": "Check the command and error message.", "additional_info": ""})
+            return json.dumps({"explanation": "Error parsing LLM response.", "suggestion": "Could not get helpful tips.", "additional_info": ""})
+        except Exception as e:
+             print(f"Error during helpful tips generation: {e}")
+             return json.dumps({"explanation": f"Error generating tips: {e}", "suggestion": "N/A", "additional_info": ""})
 
     
     def update_command_history(self, user_prompt, command, success, output=None, error=None):
@@ -211,105 +227,45 @@ class Tools:
         result = "Success" if success else "Error"
         logging.info(f"User Prompt: {user_prompt}, Command: {command}, Result: {result}, Output: {output}, Error: {error}")
 
-    def get_model_settings(self) -> str:
-        """Gets the current model settings."""
-        settings = ModelSettings(
-            model_name=self.groq_service.model_params.model_name,
-            max_tokens=self.groq_service.model_params.max_tokens,
-            temperature=self.groq_service.model_params.temperature,
-            top_p=self.groq_service.model_params.top_p
-        )
-        return settings.model_dump_json()
-
-    def update_model_settings(self, model_settings_json: str) -> str:
-        """Updates the model settings."""
-        try:
-            model_settings = ModelSettings.model_validate_json(model_settings_json)
-            self.groq_service.model_params.model_name = model_settings.model_name
-            self.groq_service.model_params.max_tokens = model_settings.max_tokens
-            self.groq_service.model_params.temperature = model_settings.temperature
-            self.groq_service.model_params.top_p = model_settings.top_p
-            return json.dumps({"status": "success"})
-        except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)})
-   
-    def get_api_keys(self) -> str:
-        """Gets the current API keys."""
-        keys = APIKeys(
-            groq_api_key=self.groq_service.api_key,
-            tavily_api_key=os.getenv("TAVILY_API_KEY", "")  # Get Tavily API key from environment
-        )
-        return keys.model_dump_json()
-
-    def update_api_keys(self, api_keys_json: str) -> str:
-        """Updates the API keys."""
-        try:
-            api_keys = APIKeys.model_validate_json(api_keys_json)
-            
-            # Update Groq API key
-            self.groq_service.api_key = api_keys.groq_api_key
-            os.environ["GROQ_API_KEY"] = api_keys.groq_api_key
-            
-            # Update Tavily API key
-            os.environ["TAVILY_API_KEY"] = api_keys.tavily_api_key
-            
-            # Save to .env file
-            env_path = os.path.join(os.getcwd(), ".env")
-            try:
-                with open(env_path, "w") as f:
-                    f.write(f"GROQ_API_KEY={api_keys.groq_api_key}\n")
-                    f.write(f"TAVILY_API_KEY={api_keys.tavily_api_key}\n")
-            except Exception as e:
-                print(f"Warning: Could not save API keys to .env file: {e}")
-            
-            return json.dumps({"status": "success"})
-        except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)})
-        
     def search_tavily(self, query: str) -> str:
         """
         Search the web using Tavily API and return formatted results.
+        Reads API key from config.
         """
         print(f"Executing Tavily search...")
         print(f"Sending search request to Tavily API for query: {query}")
         
+        # Get Tavily API key from config
+        tavily_api_key = self.config.api_keys.tavily_api_key
+        if not tavily_api_key:
+            return "Search failed: Tavily API key not found in configuration."
+            
         try:
-            tavily_service = TavilyService()
-            # Prepare search parameters according to API docs
+            # Pass the API key when creating the service
+            tavily_service = TavilyService(api_key=tavily_api_key)
             search_params = {
                 "query": query,
-                "search_depth": "advanced",  # Use advanced for more comprehensive results
+                "search_depth": "advanced",
                 "include_answer": True,
                 "include_raw_content": False,
                 "include_images": False,
-                "include_image_descriptions": False,
-                "max_results": 5  # Limit to 5 results for readability
+                "max_results": 5
             }
             
-            # Send search request
             response = tavily_service.post("/search", search_params)
             
             if not response:
                 return "No results found."
             
-            # Extract and format results according to API response format
             answer = response.get("answer", "")
             results = response.get("results", [])
-            
-            # Format the response
             formatted_response = f"Answer: {answer}\n\nSources:\n"
-            
             for idx, source in enumerate(results, 1):
                 title = source.get("title", "Untitled")
                 url = source.get("url", "No URL")
                 content = source.get("content", "").strip()
-                
-                # Truncate content if too long
-                if len(content) > 200:
-                    content = content[:197] + "..."
-                
+                if len(content) > 200: content = content[:197] + "..."
                 formatted_response += f"\n{idx}. {title}\n   URL: {url}\n   Summary: {content}\n"
-            
             return formatted_response
             
         except Exception as e:
