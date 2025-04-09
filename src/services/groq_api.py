@@ -17,31 +17,23 @@ class GroqService:
         self.tools = {}  # Initialize an empty dictionary to store tools
 
     def _initialize_client(self):
-        """Initializes or updates the OpenAI client with the current API key from config."""
+        """Initializes the OpenAI client with the current API key from config."""
         api_key = self.config.api_keys.groq_api_key
         if not api_key:
-            print("Warning: GROQ_API_KEY not found in config. API calls may fail.")
+            print("Warning: GROQ_API_KEY not found in config. Client not initialized.")
             self.client = None
             return
 
-        # Check if client exists and if key has changed
-        current_api_key = None
-        if self.client and hasattr(self.client, 'api_key') and hasattr(self.client.api_key, '_secret_value'):
-             current_api_key = self.client.api_key._secret_value
-
-        if self.client is None or api_key != current_api_key:
-             print(f"Initializing/Updating Groq client...")
-             try:
-                 self.client = openai.Client(
-                     api_key=api_key,
-                     base_url="https://api.groq.com/openai/v1"
-                 )
-                 print("Groq client initialized/updated.")
-             except Exception as e:
-                 print(f"Error creating/updating Groq client: {str(e)}")
-                 self.client = None # Ensure client is None if creation fails
-        # else:
-        #     print("DEBUG: Groq client API key unchanged, reusing existing client.")
+        print(f"DEBUG: Force creating new Groq client with key: {api_key[:5]}...")
+        try:
+            self.client = openai.Client(
+                api_key=api_key,
+                base_url="https://api.groq.com/openai/v1"
+            )
+            print("DEBUG: New Groq client created.")
+        except Exception as e:
+            print(f"Error creating Groq client: {str(e)}")
+            self.client = None
 
     def register_tool(self, name: str, func: Callable[..., str]) -> None:
         """Registers a tool with the Groq service."""

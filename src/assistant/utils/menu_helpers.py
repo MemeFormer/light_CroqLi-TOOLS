@@ -81,8 +81,6 @@ class MenuSystem:
         }
     
     def _display_prompts_list(self):
-        self.config.load_prompts()
-
         if not self.config.prompts:
             self.console.print("No prompts available.", style="yellow")
             return "system_prompts"
@@ -675,7 +673,7 @@ class MenuSystem:
             return "system_prompts"
 
     def _model_settings(self):
-        """Model settings menu."""
+        """Model settings menu - reads/writes directly to Config."""
         model_max_tokens = {
             "llama3-8b-8192": 8192,
             "llama3-70b-8192": 8192,
@@ -684,10 +682,20 @@ class MenuSystem:
         }
 
         while True:
-            current_settings = ModelSettings.model_validate_json(self.tools.get_model_settings())
+            # Read directly from config object
+            current_settings = self.config.model_settings 
+            
+            # Display current settings clearly
+            self.console.print(f"\nCurrent Model Settings:", style="bold blue")
+            self.console.print(f"  Model Name: {current_settings.model_name}")
+            self.console.print(f"  Max Tokens: {current_settings.max_tokens}")
+            self.console.print(f"  Temperature: {current_settings.temperature}")
+            self.console.print(f"  Top P: {current_settings.top_p}")
+            self.console.print("---")
+            
             questions = [
                 inquirer.List(
-                    "Setting",
+                    "setting", # Renamed from "Setting" for consistency
                     message="Choose a model setting to modify",
                     choices=[
                         "Model Name",
@@ -696,73 +704,94 @@ class MenuSystem:
                         "Top P",
                         "Back",
                     ],
+                    carousel=True # Keep carousel
                 ),
             ]
-            setting = inquirer.prompt(questions)["Setting"]
+            answers = inquirer.prompt(questions)
+            if not answers: # Handle Ctrl+C
+                 break # Go back if cancelled
+                 
+            setting_choice = answers["setting"]
 
-
-            if setting == "Back":
+            if setting_choice == "Back":
                 break
 
-            if setting == "Model Name":
-                choices = list(model_max_tokens.keys())
-                model_question = [
-                        inquirer.List(
-                        "model",
-                        message="Choose the model to use",
-                        choices=choices
-                    )
-                ]
-                new_model = inquirer.prompt(model_question)["model"]
-                if new_model:
-                    current_settings.model_name = new_model
+            try: # Wrap modifications in try/except
+                setting_modified = False # Flag to track if changes were made
+                if setting_choice == "Model Name":
+                    choices = list(model_max_tokens.keys())
+                    model_question = [ inquirer.List("model", message="Choose the model to use", choices=choices, default=current_settings.model_name) ]
+                    model_answers = inquirer.prompt(model_question)
+                    if model_answers:
+                        new_model = model_answers["model"]
+                        if new_model != current_settings.model_name:
+                            # Update config directly
+                            self.config.model_settings.model_name = new_model
+                            # Reset max_tokens if model changes, to ensure validity
+                            # Use .get() with a default for safety
+                            self.config.model_settings.max_tokens = model_max_tokens.get(new_model, 4096) 
+                            setting_modified = True
+                    else: # Ctrl+C during model selection
+                        self.console.print("Model selection cancelled.", style="yellow")
+                        continue # Restart loop
 
-            elif setting == "Max Tokens":
-                max_range = model_max_tokens[current_settings.model_name]
-                token_question = [
-                    inquirer.Text(
-                        "max_tokens",
-                        message=f"Enter max tokens (range: 0-{max_range}, current: {current_settings.max_tokens})",
-                        validate=lambda _, x: x.isdigit() and 0 <= int(x) <= max_range
-                    )
-                ]
-                new_tokens = inquirer.prompt(token_question)["max_tokens"]
-                if new_tokens:
-                    current_settings.max_tokens = int(new_tokens)
+                elif setting_choice == "Max Tokens":
+                    # Use .get() with a default for safety
+                    max_range = model_max_tokens.get(current_settings.model_name, 8192) 
+                    token_question = [ inquirer.Text("max_tokens", message=f"Enter max tokens (0-{max_range}, current: {current_settings.max_tokens})", validate=lambda _, x: x.isdigit() and 0 <= int(x) <= max_range, default=str(current_settings.max_tokens)) ]
+                    token_answers = inquirer.prompt(token_question)
+                    if token_answers:
+                        new_tokens = int(token_answers["max_tokens"])
+                        if new_tokens != current_settings.max_tokens:
+                            # Update config directly
+                            self.config.model_settings.max_tokens = new_tokens
+                            setting_modified = True
+                    else: # Ctrl+C
+                        self.console.print("Max tokens update cancelled.", style="yellow")
+                        continue
 
-            elif setting == "Temperature":
-                temp_question = [
-                    inquirer.Text(
-                        "temperature",
-                        message=f"Enter temperature (range: 0.0-1.0, current: {current_settings.temperature})",
-                        validate=lambda _, x: x.replace(".", "").isdigit() and 0.0 <= float(x) <= 1.0
-                    )
-                ]
-                new_temp = inquirer.prompt(temp_question)["temperature"]
-                if new_temp:
-                    current_settings.temperature = float(new_temp)
+                elif setting_choice == "Temperature":
+                    temp_question = [ inquirer.Text("temperature", message=f"Enter temperature (0.0-1.0, current: {current_settings.temperature})", validate=lambda _, x: x.replace(".", "", 1).isdigit() and 0.0 <= float(x) <= 1.0, default=str(current_settings.temperature)) ]
+                    temp_answers = inquirer.prompt(temp_question)
+                    if temp_answers:
+                        new_temp = float(temp_answers["temperature"])
+                        # Add small tolerance for float comparison
+                        if abs(new_temp - current_settings.temperature) > 1e-9:
+                            # Update config directly
+                            self.config.model_settings.temperature = new_temp
+                            setting_modified = True
+                    else: # Ctrl+C
+                        self.console.print("Temperature update cancelled.", style="yellow")
+                        continue
 
-            elif setting == "Top P":
-                top_p_question = [
-                    inquirer.Text(
-                        "top_p",
-                        message=f"Enter top P (range: 0.0-1.0, current: {current_settings.top_p})",
-                        validate=lambda _, x: x.replace(".", "").isdigit() and 0.0 <= float(x) <= 1.0
-                    )
-                ]
-                new_top_p = inquirer.prompt(top_p_question)["top_p"]
-                if new_top_p:
-                    current_settings.top_p = float(new_top_p)
+                elif setting_choice == "Top P":
+                    top_p_question = [ inquirer.Text("top_p", message=f"Enter top P (0.0-1.0, current: {current_settings.top_p})", validate=lambda _, x: x.replace(".", "", 1).isdigit() and 0.0 <= float(x) <= 1.0, default=str(current_settings.top_p)) ]
+                    top_p_answers = inquirer.prompt(top_p_question)
+                    if top_p_answers:
+                        new_top_p = float(top_p_answers["top_p"])
+                        # Add small tolerance for float comparison
+                        if abs(new_top_p - current_settings.top_p) > 1e-9:
+                            # Update config directly
+                            self.config.model_settings.top_p = new_top_p
+                            setting_modified = True
+                    else: # Ctrl+C
+                         self.console.print("Top P update cancelled.", style="yellow")
+                         continue
 
-            # After updating a setting, update the config and Groq service
-            updated_settings_json = current_settings.model_dump_json()
-            update_result = json.loads(self.tools.update_model_settings(updated_settings_json))
-            if update_result["status"] == "success":
-                self.console.print("Model settings updated successfully.", style="green")
-            else:
-                self.console.print(f"Error updating model settings: {update_result['message']}", style="red")
+                # Save config if modifications were made
+                if setting_modified:
+                    self.config.save_config() # Persist changes
+                    self.console.print("Model settings updated successfully.", style="green")
+                    # Removed tools call
+                    
+            except KeyboardInterrupt: # Catch Ctrl+C in nested prompts
+                self.console.print("\nOperation cancelled.", style="yellow")
+                continue # Go back to settings choice
+            except Exception as e:
+                 self.console.print(f"An error occurred: {e}", style="red")
+                 continue # Stay in loop on error
 
-        return "settings"
+        return "settings" # Return to parent menu (settings)
 
     def display_current_menu(self):
         """(Deprecated/Simplified) Display the current menu breadcrumb."""
@@ -875,60 +904,82 @@ class MenuSystem:
         self.console.print("Goodbye!", style="bold blue")
         return "quit"
 
-    def _model_settings(self):
-        try:
-            current_settings = ModelSettings.model_validate_json(self.tools.get_model_settings())
-        
-        # Implement model settings logic here
-            self.console.print("Model settings menu (to be implemented)", style="yellow")
-            return "settings" # Return to settings menu after
-        except Exception as e:
-            self.console.print(f"Error loading model settings: {e}", style="red")
-            return "settings"
-
     def _api_keys(self):
-        """API keys menu."""
-        while True:
-            current_keys = APIKeys.model_validate_json(self.tools.get_api_keys())
+        """API keys menu - reads/writes directly to Config."""
+        # Read current keys ONCE
+        current_keys = self.config.api_keys
 
-            questions = [
-                inquirer.Text(
-                    "groq_api_key",
-                    message="Enter your new GROQ API key (leave empty to keep current):",
-                    default=current_keys.groq_api_key,
-                ),
-                inquirer.Text(
-                    "tavily_api_key",
-                    message="Enter your Tavily API key (leave empty to keep current):",
-                    default=current_keys.tavily_api_key,
-                ),
-                inquirer.Confirm("confirm", message="Save changes?", default=False),
-            ]
+        # Display current keys (masked)
+        masked_groq = f"{current_keys.groq_api_key[:5]}..." if current_keys.groq_api_key else "Not Set"
+        masked_tavily = f"{current_keys.tavily_api_key[:5]}..." if current_keys.tavily_api_key else "Not Set"
+        self.console.print(f"\nCurrent API Keys:", style="bold blue")
+        self.console.print(f"  GROQ API Key: {masked_groq}")
+        self.console.print(f"  Tavily API Key: {masked_tavily}")
+        self.console.print("---")
+
+        # Define questions ONCE
+        questions = [
+            inquirer.Text(
+                "groq_api_key",
+                message="Enter new GROQ API key (leave empty to keep current):",
+                default=current_keys.groq_api_key if current_keys.groq_api_key else "",  # Show current key as default
+            ),
+            inquirer.Text(
+                "tavily_api_key",
+                message="Enter new Tavily API key (leave empty to keep current):",
+                default=current_keys.tavily_api_key if current_keys.tavily_api_key else "",  # Show current key as default
+            ),
+            inquirer.Confirm("confirm", message="Save changes?", default=False),
+        ]
+        
+        try:
+            # Prompt ONCE
             answers = inquirer.prompt(questions)
+            if not answers:  # Handle Ctrl+C
+                self.console.print("Action cancelled.", style="yellow")
+                return "settings"
 
             if not answers["confirm"]:
-                break  # Return without saving
+                self.console.print("Changes discarded.", style="yellow")
+                return "settings"
 
-            try:
-                # Update APIKeys model
-                current_keys.groq_api_key = answers["groq_api_key"]
-                current_keys.tavily_api_key = answers["tavily_api_key"]
+            # Check for actual changes
+            groq_updated = False
+            tavily_updated = False
+            new_groq_key = answers["groq_api_key"].strip()
+            new_tavily_key = answers["tavily_api_key"].strip()
+            
+            if new_groq_key and new_groq_key != current_keys.groq_api_key:
+                self.config.api_keys.groq_api_key = new_groq_key
+                groq_updated = True
+                
+            if new_tavily_key and new_tavily_key != current_keys.tavily_api_key:
+                self.config.api_keys.tavily_api_key = new_tavily_key
+                tavily_updated = True
 
-                # Update the API keys using the tool
-                update_result = json.loads(self.tools.update_api_keys(current_keys.model_dump_json()))
-                if update_result["status"] == "success":
-                    self.console.print("API keys updated successfully.", style="green")
-                    # Re-initialize services with new API keys
-                    self.groq_service = GroqService()  # Re-initialize GroqService
-                    self.tools.groq_service = self.groq_service  # Update tools with new groq_service
-                    break  # Exit after successful update
-                else:
-                    self.console.print(f"Error updating API keys: {update_result['message']}", style="red")
+            # Save and re-initialize if changes were made
+            if groq_updated or tavily_updated:
+                self.console.print("Saving API keys...", style="dim")
+                self.config.save_config()  # This should trigger the debug prints
+                self.console.print("API keys updated successfully.", style="green")
+                
+                # Re-initialize services
+                self.console.print("Re-initializing services...", style="dim")
+                try:
+                    if groq_updated:
+                        self.groq_service._initialize_client()
+                    self.console.print("Services re-initialized.", style="green")
+                except Exception as e:
+                    self.console.print(f"Error re-initializing services: {e}", style="red")
+            else:
+                self.console.print("No changes detected.", style="yellow")
 
-            except Exception as e:
-                self.console.print(f"An error occurred: {e}", style="red")
+        except KeyboardInterrupt:
+            self.console.print("\nOperation cancelled.", style="yellow")
+        except Exception as e:
+            self.console.print(f"An error occurred: {e}", style="red")
 
-        return "settings"
+        return "settings"  # Return to settings menu
 
     def _manage_system_prompts(self) -> Optional[str]:
         """Manage system prompts using a single interactive inquirer list."""
@@ -937,7 +988,6 @@ class MenuSystem:
 
         while True:  # Loop to allow re-display after actions
             # Refresh data inside the loop
-            self.config.load_prompts()
             all_prompts = list(self.config.prompts.values())
 
             if not all_prompts:

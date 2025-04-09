@@ -28,8 +28,6 @@ def register_tools(groq_service: Any, tools: Any) -> None:
         groq_service.register_tool("search_history", tools.search_history)
         groq_service.register_tool("execute_command", tools.execute_command)
         groq_service.register_tool("provide_helpful_tips", tools.provide_helpful_tips)
-        groq_service.register_tool("get_api_keys", tools.get_api_keys)
-        groq_service.register_tool("update_api_keys", tools.update_api_keys)
         groq_service.register_tool("search_tavily", tools.search_tavily)
         logger.info("Tools registered successfully")
     except Exception as e:
@@ -60,7 +58,7 @@ def main():
         sys.stdout.flush()
         
         config = load_config()
-        config.load_prompts()
+        config.load_system_prompts()
         
         logger.info("Configuration and system prompts loaded")
         sys.stdout.write("Configuration and system prompts loaded\n")
@@ -70,8 +68,8 @@ def main():
         sys.stdout.write("Initializing services...\n")
         sys.stdout.flush()
         
-        groq_service = GroqService()
-        tools = Tools(groq_service)
+        groq_service = GroqService(config)
+        tools = Tools(config, groq_service)
         register_tools(groq_service, tools)
         
         logger.info("Services initialized successfully")

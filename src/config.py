@@ -120,12 +120,20 @@ class Config(BaseModel):
     def save_config(self) -> None:
         """Saves the main configuration (settings, keys) to config.json."""
         CONFIG_FILE = "config.json" # Define locally just in case
+        print("DEBUG: Attempting to save config...")
+        # Print crucial settings to verify they are correct *before* dumping
+        print(f"DEBUG: Saving API Keys: groq={self.api_keys.groq_api_key[:5]}..., tavily={self.api_keys.tavily_api_key[:5]}...")
+        print(f"DEBUG: Saving Model Settings: name={self.model_settings.model_name}, tokens={self.model_settings.max_tokens}")
         try:
             # Exclude prompts data from this save, as they are saved separately
             config_data_to_save = self.model_dump(exclude={'prompts', 'active_prompt_id'}, mode='json')
+            json_data_to_save = json.dumps(config_data_to_save, indent=4)
+            print(f"DEBUG: JSON data to be written:\n{json_data_to_save[:500]}...") # Print beginning of JSON
             with open(CONFIG_FILE, "w") as f:
                  json.dump(config_data_to_save, f, indent=4)
+            print(f"DEBUG: Successfully saved config to {CONFIG_FILE}")
         except (IOError, TypeError, ValueError) as e:
+            print(f"DEBUG: Error during save_config: {e}")
             print(f"Error: Failed to save configuration to {CONFIG_FILE}: {str(e)}")
 
     def validate_configuration(self) -> bool:
@@ -396,19 +404,30 @@ def load_config() -> Config:
         print(f"Loading main configuration from {CONFIG_FILE}...")
         with open(CONFIG_FILE, "r") as f:
             config_data = json.load(f)
+            print("DEBUG: Raw data loaded from config.json:")
+            print(json.dumps(config_data, indent=2)) # Print loaded data nicely
             # We only load settings/keys from config.json
             # Prompts will be loaded separately by load_system_prompts
             config_instance = Config(**config_data)
+            print("DEBUG: Config object created from loaded data:")
+            print(f"DEBUG: Loaded API Keys: groq={config_instance.api_keys.groq_api_key[:5]}..., tavily={config_instance.api_keys.tavily_api_key[:5]}...")
+            print(f"DEBUG: Loaded Model Settings: name={config_instance.model_settings.model_name}, tokens={config_instance.model_settings.max_tokens}")
             print(f"Main config loaded: {config_instance.model_settings}, {config_instance.api_keys}")
     except (FileNotFoundError, json.JSONDecodeError, ValueError) as e: # Added ValueError for Pydantic validation
         print(f"Failed to load or validate {CONFIG_FILE} ({e}). Using default settings.")
         config_instance = Config() # Create instance with default settings/keys
+        print("DEBUG: Created default Config object:")
+        print(f"DEBUG: Default API Keys: groq={config_instance.api_keys.groq_api_key[:5]}..., tavily={config_instance.api_keys.tavily_api_key[:5]}...")
+        print(f"DEBUG: Default Model Settings: name={config_instance.model_settings.model_name}, tokens={config_instance.model_settings.max_tokens}")
         # Uncomment save call now that save_config exists
         print(f"Saving default main configuration to {CONFIG_FILE}...")
         config_instance.save_config() # Save the defaults immediately
     except Exception as e:
          print(f"Unexpected error loading main config: {e}. Using default settings.")
          config_instance = Config() # Fallback to defaults
+         print("DEBUG: Created default Config object after unexpected error:")
+         print(f"DEBUG: Default API Keys: groq={config_instance.api_keys.groq_api_key[:5]}..., tavily={config_instance.api_keys.tavily_api_key[:5]}...")
+         print(f"DEBUG: Default Model Settings: name={config_instance.model_settings.model_name}, tokens={config_instance.model_settings.max_tokens}")
          # Decide if saving is safe after unexpected error
          # config_instance.save_config()
          
@@ -416,6 +435,9 @@ def load_config() -> Config:
     if config_instance is None:
         print("Critical error: config_instance is None after load attempts. Creating defaults.")
         config_instance = Config()
+        print("DEBUG: Created default Config object after critical error:")
+        print(f"DEBUG: Default API Keys: groq={config_instance.api_keys.groq_api_key[:5]}..., tavily={config_instance.api_keys.tavily_api_key[:5]}...")
+        print(f"DEBUG: Default Model Settings: name={config_instance.model_settings.model_name}, tokens={config_instance.model_settings.max_tokens}")
         # Consider saving here too, although it might indicate a deeper issue
         # config_instance.save_config()
 

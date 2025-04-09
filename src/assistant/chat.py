@@ -7,7 +7,6 @@ from typing import List
 from src.config import Config
 
 def get_groq_response(groq_service: GroqService, input_text: str, history: List[ChatMessage], config: Config) -> ToolCall:
-    config.load_prompts()
     messages = []
     if config.active_prompt:  # Use config.active_prompt (assuming it exists)
         messages.append(ChatMessage(role="system", content=config.active_prompt.content)) # Correct attribute
@@ -46,37 +45,22 @@ def chat_mode(config, console: Console, groq_service: GroqService): # Accept gro
                 tool_call = response.tool_calls[0]
                 tool_name = tool_call.function.name
                 tool_args = json.loads(tool_call.function.arguments)
-                # ... Code to execute the tool and get tool_result ...
-                console.print(f"Tool Call Result: {response.input if response.input else 'No tool input'}")
-
-                # Construct the next message to send to Groq, including the tool result
-
-                history.append(ChatMessage(role="assistant", content=json.dumps({"tool_code":response.input})))
-
-
-            elif isinstance(response, ToolCall) and response.input:
-
-                    # For now just print tool input. Implement handling for tool input in next steps
-                    console.print(f"Tool input: {response.input}")  
-
-            else:  # Standard response (no tool call)
-                try:
-                    content = response.choices[0].message.content
-                    console.print(f"Assistant: {content}")
-                    history.append(ChatMessage(role="assistant", content=content))
-                    print(f"Response keys: {response.model_dump().keys()}") # Print available keys
-                    print(f"Response choices: {response.choices}") # Print the choices
-
-                except AttributeError as e:
-                    console.print(f"Error: Invalid response format: {e}", style="bold red")
-                    console.print(f"Full response: {response}")
-                    print(f"Full response: {response.model_dump()}") # Print the full dumped response for debugging
-
-
-            history.append(ChatMessage(role="user", content=user_input))
-
-
+                
+                # Execute the tool and get the result
+                tool_result = groq_service.execute_tool(tool_name, tool_args)
+                
+                # Add the tool result to the history
+                history.append(ChatMessage(role="assistant", content=str(tool_result)))
+                
+                # Display the tool result to the user
+                console.print(f"\nASSISTANT: {tool_result}\n")
+            else:
+                # If no tool calls, just display the response
+                console.print(f"\nASSISTANT: {response.input}\n")
+                history.append(ChatMessage(role="assistant", content=response.input))
+                
         except Exception as e:
-            console.print(f"An error occurred: {str(e)}", style="bold red")
+            console.print(f"[red]Error: {str(e)}[/red]")
+            continue
 
     console.print("Exiting chat mode.", style="bold blue")

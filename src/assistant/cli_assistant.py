@@ -61,16 +61,16 @@ def cli_assistant_mode(config, console: Console, groq_service: GroqService, tool
             if user_input.lower().strip() in ['exit', 'quit', '/menu']:
                 break
             
-            system_prompt = config.generate_system_prompt(shell_and_os.model_dump_json(), tools.command_history) # Use tools.generate_system_prompt and tools.command_history
+            system_prompt = tools.generate_system_prompt() # Use tools.generate_system_prompt
             
             chat_completion = client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_input}
                 ],
-                model=config.groq_model,
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
+                model=config.model_settings.model_name,
+                temperature=config.model_settings.temperature,
+                max_tokens=config.model_settings.max_tokens,
                 response_format={"type": "json_object"}
             )
             
@@ -99,7 +99,7 @@ def handle_error_and_retry(user_prompt, error_message, shell_and_os: ShellAndOS,
         ])
         retry_prompt += f"\n\nRelevant Command History:\n{history_context}"
 
-    system_prompt = tools.generate_system_prompt(shell_and_os.model_dump_json(), tools.command_history) # Use tools.generate_system_prompt and tools.command_history)
+    system_prompt = tools.generate_system_prompt() # Use tools.generate_system_prompt
     
     chat_completion = client.chat.completions.create(
         messages=[
