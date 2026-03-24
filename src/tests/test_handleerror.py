@@ -57,7 +57,7 @@ class TestHandleErrorAndRetry:
         })
     
         # Mock the chat completion response with invalid JSON
-        mock_chat_completion = mocker.Mock()
+        mock_chat_completion = mocker.MagicMock()
         mock_chat_completion.choices[0].message.content = "{invalid_json}"
         mock_client.chat.completions.create.return_value = mock_chat_completion
     
