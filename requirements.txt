@@ -4,6 +4,6 @@ instructor==1.6.3
 pydantic==2.9.2
 pytest
 python-dotenv==1.0.1
-Requests==2.32.4
+Requests==2.33.0
 rich==13.9.3
 sqlalchemy
