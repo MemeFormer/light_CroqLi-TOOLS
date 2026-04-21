@@ -3,7 +3,7 @@ inquirer==3.4.0
 instructor==1.6.3
 pydantic==2.9.2
 pytest
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 Requests==2.32.4
 rich==13.9.3
 sqlalchemy
